@@ -1,0 +1,541 @@
+rhf.workhorse <- function(formula,
+                          data,
+                          ntree = 500,
+                          nsplit = 10,
+                          treesize = NULL,
+                          nodesize = NULL,
+                          block.size = 10,
+                          bootstrap = c("by.root", "none", "by.user"),
+                          samptype = c("swor", "swr"),
+                          samp = NULL,
+                          case.wt = NULL,
+                          membership = FALSE,
+                          sampsize = if (samptype == "swor") function(x){x * .632} else function(x){x},
+                          xvar.wt = NULL,
+                          ntime = 50,
+                          min.events.per.gap = 10,
+                          seed = NULL,
+                          do.trace = FALSE,
+                          ...
+                          )
+{
+  ## hidden options (used later)
+  dots <- list(...)
+  ## initialize the seed
+  seed <- get.seed(seed)
+  ## formula, family, xvar.names, yvar.names
+  formula.prelim <- parse.formula(as.formula(formula), data, NULL)
+  formula.detail <- finalize.formula(formula.prelim, data)
+  family <- formula.detail$family
+  xvar.names <- formula.detail$xvar.names
+  yvar.names <- formula.detail$yvar.names
+  subj.names <- formula.detail$subj.names
+  ## coherence check
+  if (family != "surv-tdc") {
+    stop("this function (currently) only works for TDC survival")
+  }
+  if (length(xvar.names) == 0) {
+    stop("something seems wrong: your formula did not define any x-variables")
+  }
+  if (length(yvar.names) == 0) {
+    stop("something seems wrong: your formula did not define any y-variables")
+  }
+  if (length(subj.names) == 0) {
+    stop("something seems wrong: your formula did not identify an id variable")
+  }
+  ## process y, scale time to [0,1]
+  data <- cleanup.counting(data, xvar.names, yvar.names, subj.names)
+  max.time <- attr(data, "max.time")
+  subj <- data[, subj.names]
+  subj.unique.count <- length(unique(subj))
+  yvar <- data[, yvar.names]
+  yfactor <- extract.factor(data, yvar.names)
+  yfactor$types <- yvar.types <- get.yvar.type(family, yfactor$generic.types, yvar.names)
+  yfactor$nlevels <- yvar.nlevels <- get.yvar.nlevels(family, yfactor$nlevels, yvar.names, yvar)
+  yfactor$numeric.levels <- yvar.numeric.levels <- get.numeric.levels(family, yfactor$nlevels, yvar)
+  ## process x
+  xvar <- data[, xvar.names, drop = FALSE]
+  n.xvar <- length(xvar.names)
+  n <- nrow(xvar)
+  ## We manually patch in the factor object.
+  xfactor <- list(factor = character(0),
+                  order = character(0),
+                  levels = NULL,
+                  order.levels = NULL,
+                  nlevels = rep(0, n.xvar),
+                  types = rep("R", n.xvar))
+  xvar.types <- xfactor$types
+  xvar.nlevels <- xfactor$nlevels
+  xfactor$numeric.levels <- xvar.numeric.levels <- get.numeric.levels(family, xfactor$nlevels, xvar)
+  xvar.wt  <- get.weight(xvar.wt, n.xvar)
+  ## determine which x-variables are time-dependent
+  ## determine which individuals have any time-varying information
+  xvar.time <- get.tdc.cov(data, subj.names, yvar.names)
+  subj.time <- get.tdc.subj.time(data, subj.names, yvar.names)
+  ## don't need the data anymore
+  remove(data)
+  ## tree grow options
+  mtry <- get.mtry(family, n.xvar, dots$mtry)
+  nodesize <- get.nodesize(nodesize, any(xvar.time > 0))
+  splitinfo <- get.splitinfo(formula.detail, dots$splitrule, nsplit)
+  ## hard coded options 
+  hcut <- 1
+  tune <- FALSE
+  augmentX <- augmentXlist <- NULL
+  ## experimental options
+  experimental.bits <- get.experimental.bits(dots$experimental.bits, FALSE)
+  ## missingness not allowed in rhf
+  data.pass <- TRUE
+  data.pass.bits <- get.data.pass.bits(data.pass)
+  ## convert treesize to integer
+  lot <- get.lot(hcut,
+                 treesize=treesize,
+                 tune=tune,
+                 lag=dots$lag,
+                 strikeout=dots$strikeout,
+                 max.two=dots$max.two,
+                 max.three=dots$max.three,
+                 max.four=dots$max.four)
+  if (is.function(lot$treesize)) {
+    lot$treesize <- as.integer(lot$treesize(n, any(xvar.time > 0)))
+  }
+  ## hard coded options (some are legacy)
+  perf.type <- NULL
+  ensemble <- NULL
+  empirical.risk <- TRUE
+  forest <- TRUE
+  m.target.idx <- 1
+  ## Get event information and dimensioning for families
+  if (length(ntime) > 1) {
+    ##user specified time has to be manually scaled to [0,1]
+    ntime <- ntime / max.time
+  }
+  event.info <- get.grow.event.info(yvar,
+                                    family,
+                                    ntime = ntime,
+                                    min.events.per.gap = min.events.per.gap)
+  ## initialize samptype
+  samptype <- match.arg(samptype, c("swor", "swr"))
+  ## bootstrap specifics
+  bootstrap <- match.arg(bootstrap, c("by.root", "none", "by.user"))
+  if (bootstrap == "by.root") {
+    ## Nominal bootstrap at the root node.
+    if (!is.function(sampsize) && !is.numeric(sampsize)) {
+      stop("sampsize must be a function or number specifying size of subsampled data")
+    }
+    if (is.function(sampsize)) {
+      sampsize.function <- sampsize
+    }
+    else {
+      ## convert user passed sample size to a function
+      sampsize.function <- make.samplesize.function(sampsize / subj.unique.count)
+    }
+    sampsize <- round(sampsize.function(subj.unique.count))
+    if (sampsize < 1) {
+      stop("sampsize must be greater than zero")
+    }
+    ## for swor size is limited by the number of cases
+    if (samptype == "swor" && (sampsize > subj.unique.count)) {
+      sampsize <- subj.unique.count
+      sampsize.function <- function(x){x}
+    }
+    samp <- NULL
+    case.wt  <- get.weight(case.wt, subj.unique.count)
+  }
+  else if (bootstrap == "by.user") {    
+    ## check for coherent sample: it will of be dim [.] x [ntree]
+    ## where [.] is the number of rows in the data set or unique subjects in
+    ## the case of time dependent covariates.
+    if (is.null(samp)) {
+      stop("samp must not be NULL when bootstrapping by user")
+    }
+    ## ntree should be coherent with the sample provided
+    ntree <- ncol(samp)
+    sampsize <- colSums(samp)
+    if (sum(sampsize == sampsize[1]) != ntree) {
+      stop("sampsize must be identical for each tree")
+    }
+    ## set the sample size and function
+    sampsize <- sampsize[1]
+    sampsize.function <- make.samplesize.function(sampsize[1] / subj.unique.count)
+    case.wt  <- get.weight(NULL, subj.unique.count)
+  }
+  ## This is "none".
+  else {
+    sampsize <- subj.unique.count
+    sampsize.function <- function(x){x}
+    case.wt  <- get.weight(case.wt, sampsize)
+  }
+  ## Turn performance output off unless bootstrapping by root or user.
+  if ((bootstrap != "by.root") && (bootstrap != "by.user")) {
+    perf.type <- "none"
+  }
+  ## Set the ensemble option.
+  if (!is.null(ensemble)) {
+    ## leave the ensemble as is for testing purposes.
+  }
+  else {
+    ensemble <- "all"
+    if (bootstrap == "none") {
+      ensemble <- "inbag"
+    }
+  }
+  ## perf type
+  perf.type <- get.perf(perf.type, family)
+  ## Assign low bits for the native code
+  bootstrap.bits <- get.bootstrap.bits(bootstrap)
+  empirical.risk.bits <- get.empirical.risk.bits(empirical.risk)
+  perf.bits <-  get.perf.bits(perf.type)
+  ensemble.bits <- get.ensemble.bits(ensemble)
+  forest.bits <- get.forest.bits(forest)
+  ## Assign high bits for the native code
+  membership.bits <-  get.membership.bits(membership)
+  samptype.bits <- get.samptype.bits(samptype)
+  ## block size
+  block.size <- get.block.size.bits(block.size, ntree)
+  ## Set the user defined trace.
+  do.trace <- get.trace(do.trace)
+  ## Start the C external timer.
+  ctime.external.start  <- proc.time()
+################################################ ##
+  nativeOutput <- tryCatch({.Call("entryGrow",
+                                  as.integer(do.trace),
+                                  as.integer(seed),
+                                  as.integer(bootstrap.bits +     ## low option word
+                                             empirical.risk.bits +
+                                             perf.bits +
+                                             ensemble.bits +
+                                             forest.bits),  
+                                  as.integer(membership.bits +    ## high option word
+                                             2^16 + 2^18 +        ## MEMB_OUTG and TERM_OUTG
+                                             samptype.bits),
+                                  as.integer(experimental.bits),  ## rhf (local experimental) option word
+                                  as.integer(ntree),
+                                  as.integer(n),
+                                  list(as.integer(subj.unique.count),
+                                       if (is.null(case.wt)) NULL else as.double(case.wt),
+                                       as.integer(sampsize),
+                                       if (is.null(samp)) NULL else as.integer(samp)),
+                                  as.integer(splitinfo$index),
+                                  as.integer(splitinfo$nsplit),
+                                  as.integer(mtry),
+                                  as.integer(nodesize),
+                                  lot,
+                                  list(if (is.null(m.target.idx)) as.integer(0) else as.integer(length(m.target.idx)),
+                                       if (is.null(m.target.idx)) NULL else as.integer(m.target.idx)),
+                                  list(as.integer(length(yvar.types)),
+                                       if (is.null(yvar.types)) NULL else as.character(yvar.types),
+                                       ## No factors, so we massage pass zeros.
+                                       if (is.null(yvar.types)) NULL else as.integer(yvar.nlevels),
+                                       if (is.null(yvar.numeric.levels)) NULL else sapply(1:length(yvar.numeric.levels), function(nn) {as.integer(length(yvar.numeric.levels[[nn]]))}),
+                                       if (is.null(subj)) NULL else as.integer(subj),
+                                       if (is.null(event.info)) as.integer(0) else as.integer(length(event.info$event.type)),
+                                       if (is.null(event.info)) NULL else as.integer(event.info$event.type)),
+                                  if (is.null(yvar.nlevels)) {
+                                    NULL
+                                  }
+                                  else {
+                                    lapply(1:length(yvar.nlevels),
+                                           function(nn) {as.integer(yvar.nlevels[[nn]])})
+                                  },
+                                  if (is.null(yvar.types)) NULL else as.double(as.vector(data.matrix(yvar))),
+                                  list(if(is.null(event.info$time.interest)) as.integer(0) else as.integer(length(event.info$time.interest)),
+                                       if(is.null(event.info$time.interest)) NULL else as.double(event.info$time.interest)),
+                                  list(as.integer(n.xvar),
+                                       as.character(xvar.types),
+                                       if (is.null(xvar.types)) NULL else as.integer(xvar.nlevels),
+                                       if (is.null(xvar.nlevels)) NULL else sapply(1:length(xvar.nlevels), function(nn) {as.integer(length(xvar.nlevels[[nn]]))}),
+                                       if (is.null(xvar.time)) NULL else as.integer(xvar.time),
+                                       if (is.null(subj.time)) NULL else as.integer(subj.time)),
+                                  if (is.null(xvar.nlevels)) {
+                                    NULL
+                                  }
+                                  else {
+                                    lapply(1:length(xvar.nlevels),
+                                           function(nn) {as.integer(xvar.nlevels[[nn]])})
+                                  },
+                                  as.double(as.vector(data.matrix(xvar))),
+                                  as.double(xvar.wt),
+                                  ## Here is the hack for the augmented x-vars.  The C-side needs to know how many there are,
+                                  ## so we have two elements, the first is the dimension, the second is the array. You should
+                                  ## replace these with the actual values.
+                                  augmentXlist,
+                                  as.integer(block.size),
+                                  as.integer(get.rf.cores()))},
+                           ## error = function(e) {NULL}
+                           error = function(e) { print(e); NULL }
+                           )
+  ## Stop the C external timer.
+  ctime.external.stop <- proc.time()
+  ## check for error return condition in the native code
+  if (is.null(nativeOutput)) {
+    stop("An error has occurred on the C-side.  Please turn trace on for further analysis.")
+  }
+  nativeArraySize  <- 0
+  mwcpCountSummary <- 0  
+  nullO <- lapply(1:ntree, function(b) {
+    if (nativeOutput$leafCount[b] > 0) {
+      ## The tree was not rejected.  Count the number of internal
+      ## and external (terminal) nodes in the forest.
+      nativeArraySize <<- nativeArraySize + (2 * nativeOutput$leafCount[b]) - 1
+      mwcpCountSummary <<- mwcpCountSummary + nativeOutput$mwcpCT[b]
+    }
+    else {
+      ## The tree was rejected.  However, it acts as a
+      ## placeholder, being a stump topologically and thus
+      ## adds to the total node count.
+      nativeArraySize <<- nativeArraySize + 1
+    }
+    NULL
+  })
+  rm(nullO)  ##memory saver
+  ## save the native array
+  nativeArray <- as.data.frame(cbind(nativeOutput$treeID[1:nativeArraySize],
+                                     nativeOutput$nodeID[1:nativeArraySize],
+                                     nativeOutput$nodeSZ[1:nativeArraySize],
+                                     nativeOutput$brnodeID[1:nativeArraySize],
+                                     nativeOutput$prnodeID[1:nativeArraySize],
+                                     nativeOutput$parmID[1:nativeArraySize],
+                                     nativeOutput$contPT[1:nativeArraySize],
+                                     nativeOutput$mwcpSZ[1:nativeArraySize],
+                                     nativeOutput$fsrecID[1:nativeArraySize]
+                                     ))
+  colnames(nativeArray) <- c("treeID", "nodeID", "nodeSZ", "brnodeID", "prnodeID", "parmID", "contPT", "mwcpSZ", "fsrecID")
+  ## save the native factor array
+  if (mwcpCountSummary > 0) {
+    ## This can be NULL if there are no factor splits along this dimension.
+    nativeFactorArray <- as.data.frame(cbind(nativeOutput$mwcpPT[1:mwcpCountSummary]))
+    colnames(nativeFactorArray)  <- c("mwcpPT")
+  }
+  else {
+    nativeFactorArray  <- NULL
+  }
+  ## save the forest
+  lot <- c(lot, tune=tune)
+  forest.out  <- list(forest = TRUE,
+                      ntree = ntree,
+                      n = n,
+                      subj.names = subj.names,
+                      id = subj,
+                      yvar = .scale.yvar(yvar, max.time),
+                      yvar.names = yvar.names,
+                      yvar.factor = yfactor,
+                      event.info = event.info,
+                      xvar = xvar,
+                      xvar.names = xvar.names,
+                      xvar.factor = xfactor,
+                      xvar.time = xvar.time,
+                      seed = nativeOutput$seed,
+                      nativeArray = nativeArray,
+                      nativeFactorArray = nativeFactorArray,
+                      leafCount = nativeOutput$leafCount,
+                      totalNodeCount = dim(nativeArray)[1],
+                      nodesize = nodesize,
+                      perf.type = perf.type,
+                      lot = lot,
+                      family = family,
+                      ##                        bootstrap = bootstrap,
+                      ##                        samptype = samptype,
+                      experimental.bits = experimental.bits,
+                      data.pass = data.pass,
+                      parms = list(splitrule = splitinfo$splitrule,
+                                   ntree = ntree,
+                                   mtry = mtry,
+                                   nodesize = nodesize,
+                                   ntime = if (length(ntime) > 1) ntime * max.time else ntime,
+                                   nsplit = splitinfo$nsplit,
+                                   experimental.bits = experimental.bits,
+                                   bootstrap = bootstrap,
+                                   case.wt = case.wt,
+                                   sampsize = sampsize,             
+                                   samp = samp, 
+                                   samptype = samptype,
+                                   xvar.wt = xvar.wt),
+                      trmbrCaseCt = nativeOutput$trmbrCaseCt,
+                      timbrCaseCt = nativeOutput$timbrCaseCt,
+                      tombrCaseCt = nativeOutput$tombrCaseCt,
+                      trmbrCaseId = nativeOutput$trmbrCaseId,
+                      timbrCaseId = nativeOutput$timbrCaseId,
+                      tombrCaseId = nativeOutput$tombrCaseId,
+                      terminal.qualts = TRUE,
+                      terminal.quants = TRUE,
+                      ## add x,y values here as needed
+                      xvar.time = xvar.time,
+                      version = "0.0.29")
+  empr.risk <- NULL
+  oob.empr.risk <- NULL
+  nodeStat <- NULL
+  if (!is.null(nativeOutput$bsfOrder)) {
+    bsf.order <- nativeOutput$bsfOrder
+    nativeOutput$bsfOrder <- NULL
+  }
+  if (membership) {
+    pseudo.membership <- matrix(nativeOutput$nodeMembership, c(n, ntree))
+    inbag.out <- matrix(nativeOutput$bootstrapCount, c(subj.unique.count, ntree))
+    nativeOutput$nodeMembership <- NULL
+    nativeOutput$bootstrapCount <- NULL
+  }
+  else {
+    pseudo.membership <- NULL
+    inbag.out  <- NULL
+  }
+  if (!is.null(nativeOutput$ensembleID)) {
+    ensemble.id <- nativeOutput$ensembleID
+  }
+  else {
+    ensemble.id <- NULL
+  }
+  if (!is.null(nativeOutput$ibgEnsbHazard)) {
+    hazard.ibg  <- array(nativeOutput$ibgEnsbHazard, c(subj.unique.count, length(event.info$time.interest)))
+  } else {
+    hazard.ibg <- NULL
+  }
+  if (!is.null(nativeOutput$oobEnsbHazard)) {
+    hazard.oob  <- array(nativeOutput$oobEnsbHazard, c(subj.unique.count, length(event.info$time.interest)))
+  } else {
+    hazard.oob <- NULL
+  }
+  if (!is.null(nativeOutput$ibgEnsbNlsnAaln)) {
+    chf.ibg  <- array(nativeOutput$ibgEnsbNlsnAaln, c(subj.unique.count, length(event.info$time.interest)))
+  } else {
+    chf.ibg <- NULL
+  }
+  if (!is.null(nativeOutput$oobEnsbNlsnAaln)) {
+    chf.oob  <- array(nativeOutput$oobEnsbNlsnAaln, c(subj.unique.count, length(event.info$time.interest)))
+  } else {
+    chf.oob <- NULL
+  }
+  if (!is.null(nativeOutput$ibgRisk)) {
+    risk.ibg <- nativeOutput$ibgRisk
+  } else {
+    risk.ibg <- NULL
+  }
+  if (!is.null(nativeOutput$oobRisk)) {
+    risk.oob <- nativeOutput$oobRisk
+  } else {
+    risk.oob <- NULL
+  }
+  if (empirical.risk) {
+    if (!is.null(nativeOutput$nodeRisk)) {
+      node.risk <- array(nativeOutput$nodeRisk, c(nativeArraySize, 1))
+      nativeOutput$nodeRisk <- NULL
+    }
+    if (!is.null(nativeOutput$ibgTreeRisk)) {
+      tree.risk.ibg <- array(nativeOutput$ibgTreeRisk, c(lot$treesize, ntree))
+      nativeOutput$ibgTreeRisk <- NULL
+    }
+    if (!is.null(nativeOutput$oobTreeRisk)) {
+      tree.risk.oob <- array(nativeOutput$oobTreeRisk, c(lot$treesize, ntree))
+      nativeOutput$oobTreeRisk <- NULL
+    }
+    ## Not populated for now.
+    if (!is.null(nativeOutput$nodeStat)) {
+      nodeStat <- array(nativeOutput$nodeStat[1:nativeArraySize])
+      nativeOutput$nodeStat <- NULL
+    }
+  }
+  if (!is.null(nativeOutput$tNelsonAalen)) {
+    t.chf <- vector("list", ntree)
+    offset = 0
+    for (i in 1:ntree) {
+      t.chf[[i]] <- matrix(nativeOutput$tNelsonAalen[(offset+1):(offset + (nativeOutput$leafCount[i] * length(event.info$time.interest)))],
+                           c(nativeOutput$leafCount[i], length(event.info$time.interest)), byrow=TRUE)
+      offset = offset + (nativeOutput$leafCount[i] * length(event.info$time.interest))
+    }
+  } else {
+    t.chf <- NULL
+  }
+  if (!is.null(nativeOutput$tHazard)) {
+    t.hazard <- vector("list", ntree)
+    offset = 0
+    for (i in 1:ntree) {
+      t.hazard[[i]] <- matrix(nativeOutput$tHazard[(offset+1):(offset + (nativeOutput$leafCount[i] * length(event.info$time.interest)))],
+                              c(nativeOutput$leafCount[i], length(event.info$time.interest)), byrow=TRUE)
+      offset = offset + (nativeOutput$leafCount[i] * length(event.info$time.interest))
+    }
+  } else {
+    t.hazard <- NULL
+  }
+  if (!is.null(nativeOutput$tHazardTimeCnt)) {
+    t.haz.time.cnt  <- nativeOutput$tHazardTimeCnt
+  }
+  else {
+    t.haz.time.cnt  <- NULL
+  }
+  if (!is.null(nativeOutput$tHazardTimeIdx)) {
+    t.haz.time.idx <- vector("list", n)
+    offset = 0
+    for (i in 1:n) {
+      if (t.haz.time.cnt[i] != 0) {
+        t.haz.time.idx[[i]]  <- nativeOutput$tHazardTimeIdx[(offset+1):(offset + t.haz.time.cnt[i])]
+        offset = offset + t.haz.time.cnt[i]
+      }
+      else {
+        t.haz.time.idx[[i]] <- NA_integer_
+      }
+    }
+  }
+  else {
+    t.haz.time.idx  <- NULL
+  }
+  ## Add the terminal quantitative information to the forest object for now.
+  forest.out  <- append(forest.out,
+                        list(t.chf = lapply(t.chf, function(H) H / max.time),
+                             t.hazard = lapply(t.hazard, function(h) h / max.time),
+                             t.haz.time.cnt = t.haz.time.cnt,
+                             t.haz.time.idx = t.haz.time.idx))
+  ## Initialize the default class of the forest.
+  class(forest.out) <- c("rhf", "forest", family)
+  ## set this to NULL 
+  err.rate <- NULL
+  ## make the output object    
+  rhfOutput  <- list(
+    family = family,
+    n = n,
+    ##    bootstrap = bootstrap,
+    ##    samptype = samptype,
+    ##    sampsize = sampsize,
+    ntree = ntree,
+    hcut = hcut,
+    max.time = max.time,
+    time.interest = event.info$time.interest * max.time,
+    event.info = event.info,
+    ensemble.id = ensemble.id,
+    hazard.inbag = hazard.ibg / max.time,
+    hazard.oob = hazard.oob / max.time,
+    chf.inbag = chf.ibg / max.time,
+    chf.oob   = chf.oob / max.time,
+    risk.inbag = risk.ibg,
+    risk.oob   = risk.oob,
+    splitrule = splitinfo$splitrule,
+    splitinfo = splitinfo,
+    subj.names = subj.names,
+    id = subj,
+    yvar = as.data.frame(.scale.yvar(yvar, max.time)),
+    yvar.names = yvar.names,
+    yvar.factor = yfactor,
+    yvar.types = yvar.types,
+    xvar = xvar,
+    xvar.names = xvar.names,
+    xvar.types = xvar.types,
+    xvar.time = xvar.time,
+    forest = forest.out,
+    node.risk = node.risk,
+    tree.risk.inbag = tree.risk.ibg,
+    tree.risk.oob   = tree.risk.oob,
+    nodeStat = nodeStat,
+    bsf.order = bsf.order,
+    pseudo.membership = pseudo.membership,
+    inbag = inbag.out,
+    err.rate = err.rate,
+    ctime.internal = nativeOutput$cTimeInternal,
+    ctime.external = ctime.external.stop - ctime.external.start
+  )
+  ## save the call/formula for the return object
+  my.call <- match.call()
+  my.call$formula <- eval(formula)
+  rhfOutput$call <- my.call
+  ## return the object
+  class(rhfOutput) <- c("rhf", "grow", family)
+  return(rhfOutput)
+}

@@ -1,0 +1,16 @@
+Package: randomForestRHF
+Version: 0.0.29
+Date: 2026-03-06
+Title: Random Hazard Forests
+Authors@R: c(person("Hemant", "Ishwaran", email = "hemant.ishwaran@gmail.com", role = "aut"),
+    person("Udaya B.", "Kogalur", email = "ubk@kogalur.com", role = c("aut", "cre")))
+Author: Hemant Ishwaran [aut], Udaya B. Kogalur [aut, cre]
+Maintainer: Udaya B. Kogalur <ubk@kogalur.com>
+BugReports: https://github.com/kogalur/randomForestSRC/issues/
+Depends: R (>= 4.3.0),
+Imports: randomForestSRC (>= 3.3.1), varPro, survival
+Suggests: mlbench, interp, glmnet
+SystemRequirements: OpenMP
+Description: Random Hazard Forests (RHF) extend Random Survival Forests (RSF) by directly estimating the hazard function and supporting time-dependent covariates. This enables flexible modeling of dynamic survival data using an ensemble of decision trees trained under a nonparametric hazard-based loss function.
+License: GPL (>=3)
+URL: https://www.randomforestsrc.org/ https://ishwaran.org/

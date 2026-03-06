@@ -1,0 +1,50 @@
+## Dynamic C-code Library.
+useDynLib(randomForestRHF, .registration = TRUE)
+
+importFrom("parallel", mclapply)
+importFrom("randomForestSRC", "rfsrc")
+
+importFrom("grDevices", "adjustcolor")
+
+importFrom("graphics", "legend", "lines", "par", "rug", "mtext", "points")
+importFrom("graphics", "matplot", "boxplot", "abline", "polygon")
+
+
+importFrom("stats", "runif", "as.formula", "formula", "na.omit", "model.matrix", "sd", "var", "supsmu")
+importFrom("stats", "quantile", "rbinom", "setNames", "lowess", "uniroot")
+importFrom("stats", "complete.cases")
+
+importFrom("survival", "Surv")
+
+importFrom("utils", "tail", "combn", "capture.output", "head", "flush.console")
+
+importFrom("varPro", "varpro", "get.orgvimp", "get.vimp", "cv.varpro")
+
+export(convert.counting,
+       convert.standard.counting,
+       hazard.simulation,
+       plot.rhf,
+       plot.rhf.auct,
+       predict.rhf,
+       print.rhf,
+       print.rhf.auct,
+       rhf,
+       rhf.auct,
+       rhf.news,
+       rhf.pooled.hazard,
+       rhf.smoothed.hazard,
+       rhf.tune,
+       rhf.tune.treesize,
+       rhf.tune.iAUC,
+       rhf.xvar.wt)
+
+
+
+S3method(plot, rhf)
+S3method(plot, rhf.auct)
+S3method(plot, rhf.tune.treesize)
+S3method(plot, rhf.tune)
+S3method(predict, rhf)
+S3method(print, rhf)
+S3method(print, rhf.auct)
+

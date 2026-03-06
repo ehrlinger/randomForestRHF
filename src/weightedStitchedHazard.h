@@ -1,0 +1,7 @@
+#ifndef WEIGHTED_STITCHED_HAZARD_H
+#define WEIGHTED_STITCHED_HAZARD_H
+SEXP weightedStitchedHazard(SEXP, SEXP, SEXP, SEXP,
+			    SEXP, SEXP, SEXP, SEXP,
+			    SEXP, SEXP, SEXP, SEXP,
+			    SEXP, SEXP);
+#endif
