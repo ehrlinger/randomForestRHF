@@ -46,6 +46,7 @@ rhf.workhorse <- function(formula,
   ## process y, scale time to [0,1]
   data <- cleanup.counting(data, xvar.names, yvar.names, subj.names)
   max.time <- attr(data, "max.time")
+  time.map <- attr(data, "time.map")
   subj <- data[, subj.names]
   subj.unique.count <- length(unique(subj))
   yvar <- data[, yvar.names]
@@ -107,8 +108,8 @@ rhf.workhorse <- function(formula,
   m.target.idx <- 1
   ## Get event information and dimensioning for families
   if (length(ntime) > 1) {
-    ##user specified time has to be manually scaled to [0,1]
-    ntime <- ntime / max.time
+    ## user specified time points have to be mapped to [0,1]
+    ntime <- .forward.time(ntime, time.map)
   }
   event.info <- get.grow.event.info(yvar,
                                     family,
@@ -193,6 +194,10 @@ rhf.workhorse <- function(formula,
   samptype.bits <- get.samptype.bits(samptype)
   ## block size
   block.size <- get.block.size.bits(block.size, ntree)
+  ## integrated hazard calculation
+  wmode <- is.hidden.wmode(dots)    
+  ## values of wmode in [1, 2, 3] are converted to local bits.
+  wmode.bits <- get.wmode.bits(wmode)
   ## Set the user defined trace.
   do.trace <- get.trace(do.trace)
   ## Start the C external timer.
@@ -209,7 +214,7 @@ rhf.workhorse <- function(formula,
                                   as.integer(membership.bits +    ## high option word
                                              2^16 + 2^18 +        ## MEMB_OUTG and TERM_OUTG
                                              samptype.bits),
-                                  as.integer(experimental.bits),  ## rhf (local experimental) option word
+                                  as.integer(experimental.bits + wmode.bits),  ## rhf (local experimental) option word
                                   as.integer(ntree),
                                   as.integer(n),
                                   list(as.integer(subj.unique.count),
@@ -317,7 +322,7 @@ rhf.workhorse <- function(formula,
                       n = n,
                       subj.names = subj.names,
                       id = subj,
-                      yvar = .scale.yvar(yvar, max.time),
+                      yvar = .scale.yvar(yvar, time.map),
                       yvar.names = yvar.names,
                       yvar.factor = yfactor,
                       event.info = event.info,
@@ -342,7 +347,7 @@ rhf.workhorse <- function(formula,
                                    ntree = ntree,
                                    mtry = mtry,
                                    nodesize = nodesize,
-                                   ntime = if (length(ntime) > 1) ntime * max.time else ntime,
+                                   ntime = if (length(ntime) > 1) .inverse.time(ntime, time.map) else ntime,
                                    nsplit = splitinfo$nsplit,
                                    experimental.bits = experimental.bits,
                                    bootstrap = bootstrap,
@@ -357,11 +362,13 @@ rhf.workhorse <- function(formula,
                       trmbrCaseId = nativeOutput$trmbrCaseId,
                       timbrCaseId = nativeOutput$timbrCaseId,
                       tombrCaseId = nativeOutput$tombrCaseId,
+                      ibgSizeCase = nativeOutput$ibgSizeCase,
+                      oobSizeCase = nativeOutput$oobSizeCase,
                       terminal.qualts = TRUE,
                       terminal.quants = TRUE,
                       ## add x,y values here as needed
                       xvar.time = xvar.time,
-                      version = "0.0.29")
+                      version = "1.0.1")
   empr.risk <- NULL
   oob.empr.risk <- NULL
   nodeStat <- NULL
@@ -414,6 +421,27 @@ rhf.workhorse <- function(formula,
     risk.oob <- nativeOutput$oobRisk
   } else {
     risk.oob <- NULL
+  }
+  if (!is.null(nativeOutput$ibgWCase)) {
+    int.haz.ibg <- nativeOutput$ibgWCase
+  } else {
+    int.haz.ibg <- NULL
+  }
+  if (!is.null(nativeOutput$oobWCase)) {
+    int.haz.oob <- nativeOutput$oobWCase
+  } else {
+    int.haz.oob <- NULL
+  }
+  ## New left and right hand time points over which the case hazard was integrated.
+  if (!is.null(nativeOutput$absWCaseTimeLeft)) {
+    int.haz.left <- .inverse.time(nativeOutput$absWCaseTimeLeft, time.map)
+  } else {
+    int.haz.left <- NULL
+  }
+  if (!is.null(nativeOutput$absWCaseTimeRight)) {
+    int.haz.right <- .inverse.time(nativeOutput$absWCaseTimeRight, time.map)
+  } else {
+    int.haz.right <- NULL
   }
   if (empirical.risk) {
     if (!is.null(nativeOutput$nodeRisk)) {
@@ -479,9 +507,20 @@ rhf.workhorse <- function(formula,
     t.haz.time.idx  <- NULL
   }
   ## Add the terminal quantitative information to the forest object for now.
+  hz.scale <- .hazard.scale(event.info$time.interest, time.map)
+  if (!is.null(hazard.ibg)) {
+    hazard.ibg <- sweep(hazard.ibg, 2L, hz.scale, "*")
+  }
+  if (!is.null(hazard.oob)) {
+    hazard.oob <- sweep(hazard.oob, 2L, hz.scale, "*")
+  }
+  if (!is.null(t.hazard)) {
+    t.hazard <- lapply(t.hazard, function(h) sweep(h, 2L, hz.scale, "*"))
+  }
   forest.out  <- append(forest.out,
-                        list(t.chf = lapply(t.chf, function(H) H / max.time),
-                             t.hazard = lapply(t.hazard, function(h) h / max.time),
+                        list(time.map = time.map,
+                             t.chf = t.chf,
+                             t.hazard = t.hazard,
                              t.haz.time.cnt = t.haz.time.cnt,
                              t.haz.time.idx = t.haz.time.idx))
   ## Initialize the default class of the forest.
@@ -492,26 +531,28 @@ rhf.workhorse <- function(formula,
   rhfOutput  <- list(
     family = family,
     n = n,
-    ##    bootstrap = bootstrap,
-    ##    samptype = samptype,
-    ##    sampsize = sampsize,
     ntree = ntree,
     hcut = hcut,
     max.time = max.time,
-    time.interest = event.info$time.interest * max.time,
-    event.info = event.info,
-    ensemble.id = ensemble.id,
-    hazard.inbag = hazard.ibg / max.time,
-    hazard.oob = hazard.oob / max.time,
-    chf.inbag = chf.ibg / max.time,
-    chf.oob   = chf.oob / max.time,
+    time.map = time.map,
+    time.interest = .inverse.time(event.info$time.interest, time.map),
+    hazard.inbag = hazard.ibg,
+    hazard.oob = hazard.oob,
+    chf.inbag = chf.ibg,
+    chf.oob   = chf.oob,
     risk.inbag = risk.ibg,
     risk.oob   = risk.oob,
+    int.haz.inbag = int.haz.ibg,
+    int.haz.oob = int.haz.oob,
+    int.haz.left = int.haz.left,
+    int.haz.right = int.haz.right,
+    event.info = event.info,
+    ensemble.id = ensemble.id,
     splitrule = splitinfo$splitrule,
     splitinfo = splitinfo,
     subj.names = subj.names,
     id = subj,
-    yvar = as.data.frame(.scale.yvar(yvar, max.time)),
+    yvar = as.data.frame(.scale.yvar(yvar, time.map)),
     yvar.names = yvar.names,
     yvar.factor = yfactor,
     yvar.types = yvar.types,

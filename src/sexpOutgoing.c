@@ -56,7 +56,17 @@ char  *SG_sexpStringOutgoing[SG_SEXP_SIZE] = {
   "ibgTreeRisk",       
   "oobTreeRisk",       
   "ibgTreeRiskRaw",    
-  "oobTreeRiskRaw"   , 
+  "oobTreeRiskRaw",    
+  "ibgSizeCase",       
+  "oobSizeCase",       
+  "ibgWCase",          
+  "oobWCase",          
+  "ibgWCaseTimeLeft",  
+  "oobWCaseTimeLeft",  
+  "ibgWCaseTimeRight", 
+  "oobWCaseTimeRight", 
+  "absWCaseTimeLeft",  
+  "absWCaseTimeRight", 
   "optLoGrow",         
   "optHiGrow"          
 };

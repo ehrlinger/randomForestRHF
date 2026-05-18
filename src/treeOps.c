@@ -263,9 +263,7 @@ char growTreeLOT (uint treeID, Node *root) {
   Node     *parent;
   NodeBase *parentBase;
   Node     *left;
-  NodeBase *leftBase;
   Node     *right;
-  NodeBase *rightBase;
   uint *allMembrIndx;
   uint  allMembrSize;
   char  splitResult;
@@ -401,8 +399,6 @@ char growTreeLOT (uint treeID, Node *root) {
         parent = greedyBest -> parent;
         left   = (Node *)  (((NodeBase *) parent) -> left);
         right  = (Node *)  (((NodeBase *) parent) -> right);
-        leftBase   = (NodeBase *) left;
-        rightBase  = (NodeBase *) right;
         (lotObj -> treeSize) ++;
         if (RF_opt & OPT_EMPR_RISK) {
           double parentRisk, leftRisk, rightRisk;

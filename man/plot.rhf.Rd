@@ -91,10 +91,10 @@ performed.
 }
 
 \seealso{
-  \code{\link{rhf}},
-  \code{\link{rhf.smoothed.hazard}}
+  \code{\link{hazard.simulation}},
   \code{\link{predict.rhf}},
-  \code{\link{hazard.simulation}}
+  \code{\link{rhf}},
+  \code{\link{smoothed.hazard.rhf}}
 }
 
 \examples{
@@ -110,26 +110,31 @@ f <- "Surv(id, start, stop, event) ~ ."
 set.seed(1)
 o <- rhf(f, d)
 
+oldpar <- par(mfrow=c(1,1))
+
 ## plot selected cases
 ids <- o$ensemble.id[1:3]
-plot.rhf(o, idx = ids)
+plot(o, idx = ids)
 
 ## hazard only
-plot.rhf(o, idx = ids)
+plot(o, idx = ids)
 
 ## scaled hazard with CHF
-plot.rhf(o, idx = ids, scale.hazard = TRUE, hazard.only = FALSE)
+plot(o, idx = ids, scale.hazard = TRUE, hazard.only = FALSE)
 
 ## auxiliary grid with smoother control
-plot.rhf(o, idx = ids, grid = TRUE, ngrid = 60, bass = 2, hazard.only = FALSE)
+plot(o, idx = ids, grid = TRUE, ngrid = 60, bass = 2, hazard.only = FALSE)
 
 ## multiple cases, no legend
-plot.rhf(o, idx = o$ensemble.id[1:10], lwd = 0, legend.show = FALSE)
+plot(o, idx = o$ensemble.id[1:10], lwd = 0, legend.show = FALSE)
 
 ## lowess median smoothed hazard
-s <- rhf.smoothed.hazard(o)  ## default method="median.loess"
-plot.rhf(s, idx = o$ensemble.id[1:10])
-plot.rhf(s, idx = o$ensemble.id[1:10], lwd = 0)
+s <- smoothed.hazard(o)  ## default method="median.loess"
+plot(s, idx = o$ensemble.id[1:10])
+plot(s, idx = o$ensemble.id[1:10], lwd = 0)
+
+
+par(oldpar)
 
 ## ------------------------------------------------------------
 ##  complex simulated time dependent covariate hazards
@@ -137,7 +142,10 @@ plot.rhf(s, idx = o$ensemble.id[1:10], lwd = 0)
 f <- "Surv(id, start, stop, event) ~ ."
 sim2 <- hazard.simulation(2)$dta
 o2 <- rhf(f, sim2)
-plot.rhf(o2, 1)
+
+oldpar <- par(mfrow=c(1,1))
+plot(o2, 1)
+par(oldpar)
 
 ## ------------------------------------------------------------
 ##  same complex simulation, but using smoothed hazard
@@ -146,13 +154,16 @@ f <- "Surv(id, start, stop, event) ~ ."
 sim2 <- hazard.simulation(2)$dta
 o2 <- rhf(f, sim2)
 
-s2.loess <- rhf.smoothed.hazard(o2, method="loess")
-s2.med.loess <- rhf.smoothed.hazard(o2, method="median.loess")
+s2.loess <- smoothed.hazard(o2, method="loess")
+s2.med.loess <- smoothed.hazard(o2, method="median.loess")
 
-plot.rhf(o2, 1)
-plot.rhf(s2.loess, 1)
-plot.rhf(s2.med.loess, 1)
-plot.rhf(s2.med.loess, 1:10, lwd = 0)
+oldpar <- par(mfrow=c(1,1))
+plot(o2, 1)
+plot(s2.loess, 1)
+plot(s2.med.loess, 1)
+plot(s2.med.loess, 1:10, lwd = 0)
+par(oldpar)
+
 
 }
 

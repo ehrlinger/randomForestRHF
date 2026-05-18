@@ -1,33 +1,80 @@
-.scale.yvar <- function(y, mxt) {
-  ## y is expected to be a numeric matrix with columns (start, stop, event)
-  ## Scale start/stop by mxt (training max.time). Fail fast on invalid mxt.
-  if (length(mxt) != 1L || !is.finite(mxt) || mxt <= 0) {
-    stop("Invalid 'max.time' (mxt): must be a positive finite scalar.")
+.as.time.map <- function(tm) {
+  if (is.list(tm) && !is.null(tm$method)) {
+    if (tm$method == "legacy") {
+      if (length(tm$max.time) != 1L || !is.finite(tm$max.time) || tm$max.time <= 0) {
+        stop("Invalid legacy time map: 'max.time' must be a positive finite scalar.")
+      }
+      tm$max.time <- as.double(tm$max.time)
+      if (is.null(tm$tau)) tm$tau <- tm$max.time
+      return(tm)
+    }
+    if (tm$method == "mlogit") {
+      if (length(tm$tau) != 1L || !is.finite(tm$tau) || tm$tau <= 0) {
+        stop("Invalid modified-logit time map: 'tau' must be a positive finite scalar.")
+      }
+      tm$tau <- as.double(tm$tau)
+      if (is.null(tm$max.time)) tm$max.time <- NA_real_
+      return(tm)
+    }
+    stop("Unknown time map method.")
   }
+  ## scalar input => legacy behavior
+  if (length(tm) != 1L || !is.finite(tm) || tm <= 0) {
+    stop("Invalid 'max.time' / time map.")
+  }
+  list(method = "legacy",
+       max.time = as.double(tm),
+       tau = as.double(tm))
+}
+.forward.time <- function(s, tm) {
+  tm <- .as.time.map(tm)
+  s  <- as.double(s)
+  if (tm$method == "legacy") {
+    return(s / tm$max.time)
+  }
+  out <- 2 * plogis(s / tm$tau) - 1
+  pmin(pmax(out, 0), 1 - sqrt(.Machine$double.eps))
+}
+.inverse.time <- function(t, tm) {
+  tm <- .as.time.map(tm)
+  t  <- as.double(t)
+  if (tm$method == "legacy") {
+    return(t * tm$max.time)
+  }
+  if (any(t < 0, na.rm = TRUE)) {
+    stop("Internal time must be non-negative.")
+  }
+  t <- pmin(t, 1 - sqrt(.Machine$double.eps))
+  2 * tm$tau * atanh(t)
+}
+.hazard.scale <- function(t, tm) {
+  tm <- .as.time.map(tm)
+  t  <- as.double(t)
+  if (tm$method == "legacy") {
+    return(rep.int(1 / tm$max.time, length(t)))
+  }
+  (1 - t^2) / (2 * tm$tau)
+}
+.scale.yvar <- function(y, mxt) {
+  tm <- .as.time.map(mxt)
   y <- as.matrix(y)
   storage.mode(y) <- "double"
   if (ncol(y) < 2L) {
     stop("Argument 'y' must have at least two columns (start, stop).")
   }
-  y[, 1L] <- y[, 1L] * mxt
-  y[, 2L] <- y[, 2L] * mxt
-  ## event column (if present) is left unscaled
+  y[, 1L] <- .inverse.time(y[, 1L], tm)
+  y[, 2L] <- .inverse.time(y[, 2L], tm)
   y
 }
 .iscale.yvar <- function(y, mxt) {
-  ## y is expected to be a numeric matrix with columns (start, stop, event)
-  ## Scale start/stop by mxt (training max.time). Fail fast on invalid mxt.
-  if (length(mxt) != 1L || !is.finite(mxt) || mxt <= 0) {
-    stop("Invalid 'max.time' (mxt): must be a positive finite scalar.")
-  }
+  tm <- .as.time.map(mxt)
   y <- as.matrix(y)
   storage.mode(y) <- "double"
   if (ncol(y) < 2L) {
     stop("Argument 'y' must have at least two columns (start, stop).")
   }
-  y[, 1L] <- y[, 1L] / mxt
-  y[, 2L] <- y[, 2L] / mxt
-  ## event column (if present) is left unscaled
+  y[, 1L] <- .forward.time(y[, 1L], tm)
+  y[, 2L] <- .forward.time(y[, 2L], tm)
   y
 }
 finalize.data <- function(fnames, data) {

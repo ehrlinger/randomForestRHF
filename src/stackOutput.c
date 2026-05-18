@@ -20,7 +20,7 @@
 void stackDefinedOutputObjects(char mode) {
   uint  sexpIdentity;
   uint localSize;
-  uint  obsSize;
+  uint  subjSize, obsSize;
   double **ensembleDen;
   double   **ensembleKHZ;
   double  ***ensembleKHZptr;
@@ -33,6 +33,7 @@ void stackDefinedOutputObjects(char mode) {
   double  ***ensembleHRWnum;
   double   **riskPtr;
   double   **riskRawPtr;
+  double   **integralHazardPtr;
   char oobFlag, fullFlag;
   uint i, j, k;
   sexpIdentity = 0;
@@ -43,6 +44,7 @@ void stackDefinedOutputObjects(char mode) {
     if (RF_optHigh & OPT_TERM_OUTG) {
       RF_stackCount += 4;
       RF_stackCount += 2;
+      RF_stackCount += 2;
       RF_stackCount += 2;          
       RF_stackCount += 2;
     }
@@ -51,9 +53,12 @@ void stackDefinedOutputObjects(char mode) {
       RF_stackCount += 1;
       RF_stackCount += 1;
       RF_stackCount += 1;
+      RF_stackCount += 2;
+      RF_stackCount += 1;
     }
     if (RF_opt & OPT_OENS) {
       RF_stackCount += 3;
+      RF_stackCount += 1;
       RF_stackCount += 1;
       RF_stackCount += 1;
     }
@@ -77,14 +82,16 @@ void stackDefinedOutputObjects(char mode) {
     if (RF_optHigh & OPT_TERM_OUTG) {
       RF_stackCount += 2; 
       if (RF_frSize > 0) {
-        RF_stackCount += 2;  
+        RF_stackCount += 2;
       }
     }
     if (RF_opt & OPT_FENS) {
-      RF_stackCount += 3;  
+      RF_stackCount += 3; 
       RF_stackCount += 1;  
-      RF_stackCount += 1;  
-      RF_stackCount += 1;  
+      RF_stackCount += 1; 
+      RF_stackCount += 1;
+      RF_stackCount += 2;
+      RF_stackCount += 1; 
     }
   }
   if (RF_optHigh & OPT_MEMB_USER) {
@@ -96,10 +103,12 @@ void stackDefinedOutputObjects(char mode) {
   oobFlag = fullFlag = FALSE;
   if ((RF_opt & OPT_OENS) || (RF_opt & OPT_IENS) || (RF_opt & OPT_FENS)) {
     if (mode != RF_PRED) {
-      obsSize = RF_subjCount;
+      subjSize = RF_subjCount;
+      obsSize  = RF_observationSize;
     }
     else {
-      obsSize = SG_fsubjCount;
+      subjSize = SG_fsubjCount;
+      obsSize  = RF_fobservationSize;      
     }
     switch (mode) {
     case RF_PRED:
@@ -117,7 +126,7 @@ void stackDefinedOutputObjects(char mode) {
       break;
     }
     sexpIdentity = SG_ENSB_ID;
-    localSize = obsSize;
+    localSize = subjSize;
     SG_ensembleID_ = (uint*) stackAndProtect(RF_auxDimConsts,
                                              mode,
                                              &RF_nativeIndex,
@@ -130,6 +139,34 @@ void stackDefinedOutputObjects(char mode) {
                                              1,
                                              localSize);
     SG_ensembleID_ --;
+    sexpIdentity = SG_WCASE_LEFT_ABS;
+    localSize = obsSize;
+    SG_absWCaseTimeLeft_ = (double*) stackAndProtect(RF_auxDimConsts,
+                                                     mode,
+                                                     &RF_nativeIndex,
+                                                     NATIVE_TYPE_NUMERIC,
+                                                     sexpIdentity,
+                                                     localSize,
+                                                     RF_nativeNaN,
+                                                     SG_sexpStringOutgoing,
+                                                     NULL,
+                                                     1,
+                                                     localSize);
+    SG_absWCaseTimeLeft_ --;
+    sexpIdentity = SG_WCASE_RIGHT_ABS;
+    localSize = obsSize;
+    SG_absWCaseTimeRight_ = (double*) stackAndProtect(RF_auxDimConsts,
+                                                      mode,
+                                                      &RF_nativeIndex,
+                                                      NATIVE_TYPE_NUMERIC,
+                                                      sexpIdentity,
+                                                      localSize,
+                                                      RF_nativeNaN,
+                                                      SG_sexpStringOutgoing,
+                                                      NULL,
+                                                      1,
+                                                      localSize);
+    SG_absWCaseTimeRight_ --;
     while ((oobFlag == TRUE) || (fullFlag == TRUE)) {
       ensembleDen    = NULL;
       ensembleKHZ    = NULL;
@@ -154,6 +191,7 @@ void stackDefinedOutputObjects(char mode) {
         ensembleHRWnum = &SG_oobEnsembleHRWnum;
         riskPtr         = &SG_oobRisk_;
         riskRawPtr      = &SG_oobRiskRaw_;                
+        integralHazardPtr = &SG_oobWCase_;
       }
       else {
         ensembleDen    = &RF_fullEnsembleDen;
@@ -167,14 +205,15 @@ void stackDefinedOutputObjects(char mode) {
         ensembleHRWptr = &SG_fullEnsembleHRWptr;
         ensembleHRWnum = &SG_fullEnsembleHRWnum;
         riskPtr         = &SG_fullRisk_;
-        riskRawPtr      = &SG_fullRiskRaw_;        
+        riskRawPtr      = &SG_fullRiskRaw_;
+        integralHazardPtr = &SG_fullWCase_;
       }
-      *ensembleDen = dvector(1, obsSize);
-      for (i = 1; i <= obsSize; i++) {
+      *ensembleDen = dvector(1, subjSize);
+      for (i = 1; i <= subjSize; i++) {
         (*ensembleDen)[i] = 0;
       }
       (oobFlag == TRUE) ? (sexpIdentity = SG_HAZR_OOB) : ((fullFlag == TRUE) ? sexpIdentity = SG_HAZR_IBG : 0);
-      localSize = RF_sortedTimeInterestSize * obsSize;
+      localSize = RF_sortedTimeInterestSize * subjSize;
       *ensembleKHZ = (double*) stackAndProtect(RF_auxDimConsts,
                                                mode,
                                                &RF_nativeIndex,
@@ -186,16 +225,16 @@ void stackDefinedOutputObjects(char mode) {
                                                ensembleKHZptr,
                                                2,
                                                RF_sortedTimeInterestSize,
-                                               obsSize);
+                                               subjSize);
       (*ensembleKHZnum) = (double **) new_vvector(1, RF_sortedTimeInterestSize, NRUTIL_DPTR);
       for (j = 1; j <= RF_sortedTimeInterestSize; j++) {
-        (*ensembleKHZnum)[j] = dvector(1, obsSize);
-        for (k = 1; k <= obsSize; k ++) { 
+        (*ensembleKHZnum)[j] = dvector(1, subjSize);
+        for (k = 1; k <= subjSize; k ++) { 
           (*ensembleKHZnum)[j][k] = 0.0;
         }
       }
       (oobFlag == TRUE) ? (sexpIdentity = SG_NLSN_OOB) : ((fullFlag == TRUE) ? sexpIdentity = SG_NLSN_IBG: 0);
-      localSize = RF_sortedTimeInterestSize * obsSize;
+      localSize = RF_sortedTimeInterestSize * subjSize;
       *ensembleCHF = (double*) stackAndProtect(RF_auxDimConsts,
                                                mode,
                                                &RF_nativeIndex,
@@ -207,16 +246,16 @@ void stackDefinedOutputObjects(char mode) {
                                                ensembleCHFptr,
                                                2,
                                                RF_sortedTimeInterestSize,
-                                               obsSize);
+                                               subjSize);
       (*ensembleCHFnum) = (double **) new_vvector(1, RF_sortedTimeInterestSize, NRUTIL_DPTR);
       for (j = 1; j <= RF_sortedTimeInterestSize; j++) {
-        (*ensembleCHFnum)[j] = dvector(1, obsSize);
-        for (k = 1; k <= obsSize; k ++) { 
+        (*ensembleCHFnum)[j] = dvector(1, subjSize);
+        for (k = 1; k <= subjSize; k ++) { 
           (*ensembleCHFnum)[j][k] = 0.0;
         }
       }
       (oobFlag == TRUE) ? (sexpIdentity = SG_HAZR_RAW_OOB) : ((fullFlag == TRUE) ? sexpIdentity = SG_HAZR_RAW_IBG: 0);
-      localSize = RF_sortedTimeInterestSize * obsSize;
+      localSize = RF_sortedTimeInterestSize * subjSize;
       *ensembleHRW = (double*) stackAndProtect(RF_auxDimConsts,
                                                mode,
                                                &RF_nativeIndex,
@@ -228,16 +267,16 @@ void stackDefinedOutputObjects(char mode) {
                                                ensembleHRWptr,
                                                2,
                                                RF_sortedTimeInterestSize,
-                                               obsSize);
+                                               subjSize);
       (*ensembleHRWnum) = (double **) new_vvector(1, RF_sortedTimeInterestSize, NRUTIL_DPTR);
       for (j = 1; j <= RF_sortedTimeInterestSize; j++) {
-        (*ensembleHRWnum)[j] = dvector(1, obsSize);
-        for (k = 1; k <= obsSize; k ++) { 
+        (*ensembleHRWnum)[j] = dvector(1, subjSize);
+        for (k = 1; k <= subjSize; k ++) { 
           (*ensembleHRWnum)[j][k] = 0.0;
         }
       }
       (oobFlag == TRUE) ? (sexpIdentity = SG_RISK_OOB) : ((fullFlag == TRUE) ? sexpIdentity = SG_RISK_IBG: 0);
-      localSize = obsSize;
+      localSize = subjSize;
       (*riskPtr) = (double*) stackAndProtect(RF_auxDimConsts,
                                              mode,
                                              &RF_nativeIndex,
@@ -251,7 +290,7 @@ void stackDefinedOutputObjects(char mode) {
                                              localSize);
       (*riskPtr) --;
       (oobFlag == TRUE) ? (sexpIdentity = SG_RISK_RAW_OOB) : ((fullFlag == TRUE) ? sexpIdentity = SG_RISK_RAW_IBG: 0);
-      localSize = obsSize;
+      localSize = subjSize;
       (*riskRawPtr) = (double*) stackAndProtect(RF_auxDimConsts,
                                                 mode,
                                                 &RF_nativeIndex,
@@ -264,6 +303,20 @@ void stackDefinedOutputObjects(char mode) {
                                                 1,
                                                 localSize);
       (*riskRawPtr) --;
+      (oobFlag == TRUE) ? (sexpIdentity = SG_WCASE_OOB) : ((fullFlag == TRUE) ? sexpIdentity = SG_WCASE_IBG: 0);
+      localSize = obsSize;
+      (*integralHazardPtr) = (double*) stackAndProtect(RF_auxDimConsts,
+                                                       mode,
+                                                       &RF_nativeIndex,
+                                                       NATIVE_TYPE_NUMERIC,
+                                                       sexpIdentity,
+                                                       localSize,
+                                                       RF_nativeNaN,
+                                                       SG_sexpStringOutgoing,
+                                                       NULL,
+                                                       1,
+                                                       localSize);
+      (*integralHazardPtr) --;
       if (oobFlag == TRUE) {
         oobFlag = FALSE;
       }

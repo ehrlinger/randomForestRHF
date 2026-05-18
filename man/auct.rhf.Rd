@@ -1,7 +1,8 @@
-\name{rhf.auct}
-\alias{rhf.auct}
-\alias{plot.rhf.auct}
-\alias{print.rhf.auct}
+\name{auct.rhf}
+\alias{auct.rhf}
+\alias{auct}
+\alias{plot.auct.rhf}
+\alias{print.auct.rhf}
 \title{Time-varying AUC(t) and iAUC for Random Hazard Forests (TDC)}
 
 \description{
@@ -11,7 +12,7 @@ summaries for Random Hazard Forests (RHF) with time-dependent covariates
 }
 
 \usage{
-rhf.auct(
+auct.rhf(
   object,
   marker = c("cumhaz", "hazard", "chf", "haz"),
   method = c("cumulative", "incident"),
@@ -29,13 +30,12 @@ rhf.auct(
   bootstrap.rep = 0L,
   bootstrap.refit = FALSE,
   bootstrap.conf = 0.95,
-  bootstrap.trace = TRUE,
   bootstrap.seed = NULL,
   verbose = TRUE
 )
 
-\method{print}{rhf.auct}(x, digits = 4, max.rows = 8, \dots)
-\method{plot}{rhf.auct}(x, bass = 10, xlab = "Time", ylab = NULL,
+\method{print}{auct.rhf}(x, digits = 4, max.rows = 8, \dots)
+\method{plot}{auct.rhf}(x, bass = 10, xlab = "Time", ylab = NULL,
          main = NULL, ylim = NULL, pch = 16, alpha = .05, \dots)
 }
 
@@ -90,15 +90,10 @@ rhf.auct(
   \item{bootstrap.conf}{Confidence level for pointwise normal bands on AUC(t) when \code{bootstrap.rep > 0}
     (e.g., \code{0.95}). Set to \code{NA} to suppress bands.}
 
-  \item{bootstrap.trace}{Logical; if \code{TRUE} (default), progress messages are printed
-  during the bootstrap loop (replicate number, elapsed time, approximate remaining time).
-  Set to \code{FALSE} to suppress these messages.}
-
-  \item{verbose}{Print verbose output to the terminal (currently only
-  applies when bootstrapping).}
+  \item{verbose}{Logical; if \code{TRUE}, enable bootstrap progress messages.
+  Messages can be silenced with \code{suppressMessages()}.}
 
   \item{bootstrap.seed}{Optional integer seed used before bootstrap resampling for reproducibility.}
-
   
   \item{x, digits, max.rows, bass, xlab, ylab, main, ylim, pch, alpha, \dots}{
     Standard arguments for the \code{print} and \code{plot} methods.}
@@ -155,7 +150,7 @@ The \code{plot} method draws a base-R shaded band for AUC(t) when bootstrap SEs 
 }
 
 \value{
-An object of class \code{"rhf.auct"} with elements:
+An object of class \code{"auct.rhf"} with elements:
 \itemize{
   \item \code{AUC.by.time}: data frame with columns \code{time}, \code{AUC}, \code{n.cases}, \code{n.ctrl}, \code{G}, \code{W}.
   \item \code{iAUC.uno}: IPCW (Uno-style) time-averaged AUC.
@@ -186,7 +181,8 @@ A unified inference procedure for a class of measures to assess improvement in r
 }
 
 \seealso{
-\code{\link{rhf}}, \code{\link{predict.rhf}}
+  \code{\link{rhf}},
+  \code{\link{predict.rhf}}
 }
 
 \author{
@@ -204,13 +200,13 @@ data(peakVO2, package = "randomForestSRC")
 d <- convert.counting(Surv(ttodead, died) ~ ., peakVO2)
 f <- "Surv(id, start, stop, event) ~ ."
 
-o <- rhf(f, d, nodesize = 5)
+o <- rhf(f, d, ntree = 25, nodesize = 5)
 
 ## AUC(t) with cumulative/dynamic definition and cumhaz marker
-a.chf <- rhf.auct(o, marker = "cumhaz", method = "cumulative")
+a.chf <- auct.rhf(o, marker = "cumhaz", method = "cumulative")
 
 ## AUC(t) with incident/dynamic definition and hazard marker
-a.haz <- rhf.auct(o, marker = "hazard", method = "incident")
+a.haz <- auct.rhf(o, marker = "hazard", method = "incident")
 
 print(a.chf)
 print(a.haz)
@@ -227,10 +223,10 @@ par(oldpar)
 trn <- hazard.simulation(1)$dta
 tst <- hazard.simulation(1)$dta
 f <- "Surv(id, start, stop, event) ~ ."
-o <- rhf(f, trn)
+o <- rhf(f, trn, ntree = 25)
 p <- predict(o, tst)
-a.trn <- rhf.auct(o)
-a.tst <- rhf.auct(p)
+a.trn <- auct.rhf(o)
+a.tst <- auct.rhf(p)
 
 oldpar <- par(mfrow = c(1, 2))
 plot(a.trn, main = "AUC(t): chf marker, train", ylim = c(0.5,1))
@@ -244,16 +240,22 @@ d <- hazard.simulation(1)$dta
 f <- "Surv(id, start, stop, event) ~ ."
 o <- rhf(f, d)
 
+
+oldpar <- par(mfrow = c(1, 2))
+
+
 ## plug-in bootstrap
-a.bs1 <- rhf.auct(o, marker = "cumhaz", method = "cumulative",
-                  bootstrap.rep = 100, bootstrap.seed = 123)
+a.bs1 <- auct.rhf(o, marker = "cumhaz", method = "cumulative",
+                  bootstrap.rep = 20, bootstrap.seed = 123)
 plot(a.bs1, main = "AUC(t) with bootstrap band (plug-in)")
 
 ## refit bootstrap (can be slow)
-a.bs2 <- rhf.auct(o, marker = "cumhaz", method = "cumulative",
-                  bootstrap.rep = 50, bootstrap.refit = TRUE, bootstrap.seed = 7)
+a.bs2 <- auct.rhf(o, marker = "cumhaz", method = "cumulative",
+                  bootstrap.rep = 10, bootstrap.refit = TRUE, bootstrap.seed = 7)
 plot(a.bs2, main = "AUC(t) with bootstrap band (refit)")
 
+
+par(oldpar)
 }
 }
 

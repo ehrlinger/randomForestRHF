@@ -524,7 +524,7 @@ char rhfMain(char mode, int seedValue) {
               (RF_opt & OPT_IENS) ||
               (RF_opt & OPT_FENS)) {
             normalizeEnsembleEstimates(mode);
-            calculateRisk(mode);
+            calculateRiskCore(mode, (SG_optLocal & SG_OPT_WMODE) >> 16);
             calculateRiskRaw(mode);
           }
           if ((mode == RF_GROW) || (mode == RF_REST)) {
@@ -541,7 +541,9 @@ char rhfMain(char mode, int seedValue) {
                                       &SG_ombrTNodeCT_ptr,
                                       &SG_rmbrTNodeID_,
                                       &SG_imbrTNodeID_,
-                                      &SG_ombrTNodeID_);
+                                      &SG_ombrTNodeID_,
+                                      &SG_OOB_SZ_CASE_,
+                                      &SG_IBG_SZ_CASE_);
             stackTNQualitativeObjectsForestPtr(mode,
                                                SG_rmbrTNodeID_,
                                                SG_imbrTNodeID_,
@@ -550,12 +552,18 @@ char rhfMain(char mode, int seedValue) {
                                                &SG_imbrTNodeID_ptr,
                                                &SG_ombrTNodeID_ptr);
             writeTNQualitativeObjectsOutput(mode,
+                                            RF_tLeafCount,
+                                            RF_tTermList,
+                                            SG_oobSizeCase,
+                                            SG_ibgSizeCase,
                                             SG_rmbrTNodeCT_ptr,
                                             SG_imbrTNodeCT_ptr,
                                             SG_ombrTNodeCT_ptr,
                                             SG_rmbrTNodeID_ptr,
                                             SG_imbrTNodeID_ptr,
-                                            SG_ombrTNodeID_ptr);
+                                            SG_ombrTNodeID_ptr,
+                                            SG_OOB_SZ_CASE_,
+                                            SG_IBG_SZ_CASE_);
             stackTNQuantitativeObjects(mode,
                                        &SG_termNelsonAalen_,
                                        &SG_termHazard_,

@@ -21,7 +21,6 @@ void stackTNQualitativeObjectsTest(char      mode,
                                    uint   ***pSG_ombrTNodeCT_ptr,
                                    uint    **pSG_ombrTNodeID_) {
   ulong localSize;
-  uint treeID;
   if (RF_optHigh & OPT_TERM_OUTG) {
     localSize = RF_totalTermCount;
     *pSG_ombrTNodeCT_ = (uint*) stackAndProtect(RF_auxDimConsts,
@@ -58,8 +57,8 @@ void stackTNQualitativeObjectsForestPtrTest(char     mode,
   Terminal     *tTerm;
   uint treeID;
   uint termCount;
-  uint offsetID_rmbr, offsetID_imbr, offsetID_ombr;
-  uint localSize;
+  ulong offsetID_ombr;
+  ulong localSize;
   uint k;
   tTerm = NULL;  
   if (RF_optHigh & OPT_TERM_OUTG) {

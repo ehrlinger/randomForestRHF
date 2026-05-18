@@ -13,38 +13,57 @@ importFrom("graphics", "matplot", "boxplot", "abline", "polygon")
 importFrom("stats", "runif", "as.formula", "formula", "na.omit", "model.matrix", "sd", "var", "supsmu")
 importFrom("stats", "quantile", "rbinom", "setNames", "lowess", "uniroot")
 importFrom("stats", "complete.cases")
+importFrom("stats", "plogis")
 
 importFrom("survival", "Surv")
 
 importFrom("utils", "tail", "combn", "capture.output", "head", "flush.console")
 
-importFrom("varPro", "varpro", "get.orgvimp", "get.vimp", "cv.varpro")
+importFrom("varPro", "varpro", "get.orgvimp", "get.vimp", "cv.varpro",
+           "varpro.strength", "get.varpro.strengthArray",
+           "local.importance", "importance.varpro.workhorse")
 
-export(convert.counting,
+export(as.data.frame.importance.rhf,
+       auct.rhf,
+       auct,
+       convert.counting,
        convert.standard.counting,
+       dotmatrix.importance.rhf,
+       dotmatrix.importance,
        hazard.simulation,
+       importance.rhf,
+       plot.auct.rhf,
+       plot.importance.rhf,
        plot.rhf,
-       plot.rhf.auct,
+       plot.tune.treesize.rhf,
        predict.rhf,
-       print.rhf,
-       print.rhf.auct,
+       print.auct.rhf,
+       print.importance.rhf,
+       print.rhf,       
        rhf,
-       rhf.auct,
        rhf.news,
-       rhf.pooled.hazard,
-       rhf.smoothed.hazard,
-       rhf.tune,
-       rhf.tune.treesize,
-       rhf.tune.iAUC,
-       rhf.xvar.wt)
+       smoothed.hazard.rhf,
+       smoothed.hazard,
+       tune.treesize.rhf,
+       tune.rhf,
+       tune.iAUC.rhf,
+       tune.iAUC,
+       varpro.cache.rhf,
+       varpro.cache,
+       xvar.wt.rhf)
 
+S3method(as.data.frame, importance.rhf)
 
-
+S3method(plot, auct.rhf)
+S3method(plot, importance.rhf)
 S3method(plot, rhf)
-S3method(plot, rhf.auct)
-S3method(plot, rhf.tune.treesize)
-S3method(plot, rhf.tune)
+S3method(plot, tune.treesize.rhf)
+
+
 S3method(predict, rhf)
+
+S3method(print, auct.rhf)
+S3method(print, importance.rhf)
 S3method(print, rhf)
-S3method(print, rhf.auct)
+
 

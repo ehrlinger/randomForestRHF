@@ -77,8 +77,6 @@
   target <- match.arg(target)
   nm <- paste0("hazard.", target)
   if (!is.null(o[[nm]])) return(as.matrix(o[[nm]]))
-  # backwards compatibility (older wrappers used 'ibg')  
-  if (target == "inbag" && !is.null(o$hazard.ibg)) return(as.matrix(o$hazard.ibg))
   stop("Object is missing ", nm)
 }
 .rhf_loghazard_median_tree <- function(o, target = c("oob", "inbag", "both", "test"), eps = 1e-12) {
@@ -163,7 +161,7 @@
     as.numeric(eps)
   )
 }
-rhf.smoothed.hazard <- function(
+smoothed.hazard.rhf <- function(
     o,
     method = c("median.loess", "loess"),
     oob = TRUE,
@@ -172,8 +170,8 @@ rhf.smoothed.hazard <- function(
     family = NULL,
     eps = 1e-12,
     suppress.warnings = TRUE,
-    trace = FALSE
-) {
+    trace = FALSE )
+{
   method <- match.arg(method)
   if (is.null(family)) {
     family <- if (method == "median.loess") "gaussian" else "symmetric"
@@ -238,6 +236,7 @@ rhf.smoothed.hazard <- function(
       out$chf.test <- .rhf_chf_from_hazard(Hs, time)
       if (trace) message("smoothed test hazard via loess")
     }
+    class(out) <- c("smoothed.hazard.rhf", "rhf")
     return(out)
   }
   # method == 'median.loess'
@@ -283,6 +282,8 @@ rhf.smoothed.hazard <- function(
         out$chf.inbag <- .rhf_chf_from_hazard(Hs, time)
         if (trace) message("smoothed inbag hazard via median(loghazard) + loess")
     }
+    class(out) <- c("smoothed.hazard.rhf", "rhf")
     return(out)
   }
 }
+smoothed.hazard <- smoothed.hazard.rhf

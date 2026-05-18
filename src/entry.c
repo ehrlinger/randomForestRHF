@@ -349,7 +349,7 @@ SEXP entryPred(SEXP traceFlag,
   else {
     RF_xType = NULL;
   }
-  if(VECTOR_ELT(xInfo, 2) != R_NilValue) {  
+  if(VECTOR_ELT(xInfo, 2) != R_NilValue) {
     RF_xLevelsMax           = (uint *) INTEGER(VECTOR_ELT(xInfo, 2)); RF_xLevelsMax--;
   }
   else {

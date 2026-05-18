@@ -249,7 +249,6 @@ void updateEnsembleGrow(char mode, uint treeID) {
 }
 void updateEnsemblePred(char mode, uint treeID) {
   char fullFlag;
-  char outcomeFlag;
   double  **ensembleKHZnum;
   double  **ensembleCHFnum;
   double  **ensembleHRWnum;
@@ -316,7 +315,6 @@ void updateEnsemblePred(char mode, uint treeID) {
   if (RF_opt & OPT_FENS) {
     fullFlag = TRUE;
   }
-  outcomeFlag = TRUE;
   while (fullFlag == TRUE) {
     ensembleKHZnum = SG_fullEnsembleKHZnum;
     ensembleCHFnum = SG_fullEnsembleCHFnum;
@@ -539,13 +537,208 @@ char getPerfFlag (char mode, uint serialTreeID) {
   }
   return result;
 }
+static double clipUnitTime(double x) {
+  const double upper = 1.0 - sqrt(DBL_EPSILON);
+  if (x < 0.0) {
+    return 0.0;
+  }
+  if (x > upper) {
+    return upper;
+  }
+  return x;
+}
+static uint firstTimeInterestGreater(double value) {
+  int low, high, mid, result;
+  low = 1;
+  high = (int) RF_sortedTimeInterestSize;
+  result = high + 1;
+  while (low <= high) {
+    mid = low + ((high - low) >> 1);
+    if (RF_timeInterest[mid] > value) {
+      result = mid;
+      high = mid - 1;
+    }
+    else {
+      low = mid + 1;
+    }
+  }
+  return (uint) result;
+}
+static uint firstTimeInterestGreaterOrEqual(double value) {
+  int low, high, mid, result;
+  low = 1;
+  high = (int) RF_sortedTimeInterestSize;
+  result = high + 1;
+  while (low <= high) {
+    mid = low + ((high - low) >> 1);
+    if (RF_timeInterest[mid] >= value) {
+      result = mid;
+      high = mid - 1;
+    }
+    else {
+      low = mid + 1;
+    }
+  }
+  return (uint) result;
+}
+static double getCaseWGridRightUsed(double right) {
+  uint idxNext;
+  right = clipUnitTime(right);
+  idxNext = firstTimeInterestGreater(right);
+  if (idxNext <= 1) {
+    return 0.0;
+  }
+  return clipUnitTime(RF_timeInterest[idxNext - 1]);
+}
+static double getCaseWRightUsed(double right,
+                                double rightExtended,
+                                char   wMode) {
+  switch (wMode) {
+  case 1:
+    return getCaseWGridRightUsed(right);
+  case 3:
+    return clipUnitTime(rightExtended);
+  case 2:
+  default:
+    return clipUnitTime(right);
+  }
+}
+static double getCaseWObserved(double **ensembleKHZptr,
+                               uint     subjIndex,
+                               double   left,
+                               double   right) {
+  double result;
+  double uLeft, uRight, a, b;
+  uint idx1, idx2, k;
+  result = 0.0;
+  left  = clipUnitTime(left);
+  right = clipUnitTime(right);
+  if (!(left < right)) {
+    return result;
+  }
+  idx1 = firstTimeInterestGreater(left);
+  if (idx1 > RF_sortedTimeInterestSize) {
+    return result;
+  }
+  idx2 = firstTimeInterestGreaterOrEqual(right);
+  if (idx2 > RF_sortedTimeInterestSize) {
+    idx2 = RF_sortedTimeInterestSize;
+  }
+  uLeft = (idx1 > 1) ? clipUnitTime(RF_timeInterest[idx1 - 1]) : 0.0;
+  for (k = idx1; k <= idx2; k++) {
+    uRight = clipUnitTime(RF_timeInterest[k]); 
+    a = clipUnitTime((left  > uLeft)  ? left  : uLeft);
+    b = clipUnitTime((right < uRight) ? right : uRight);
+    if (b > a) {
+      result += ensembleKHZptr[k][subjIndex] *
+                (1.0 - uRight * uRight) *
+                (atanh(b) - atanh(a));
+    }
+    uLeft = uRight;
+  }
+  return result;
+}
+static double getCaseWGrid(double **ensembleKHZptr,
+                           uint     subjIndex,
+                           double   left,
+                           double   right) {
+  uint idxNext;
+  double rightSnap;
+  left  = clipUnitTime(left);
+  right = clipUnitTime(right);
+  if (!(left < right)) {
+    return 0.0;
+  }
+  idxNext = firstTimeInterestGreater(right);
+  if (idxNext <= 1) {
+    return 0.0;
+  }
+  rightSnap = clipUnitTime(RF_timeInterest[idxNext - 1]);
+  if (!(left < rightSnap)) {
+    return 0.0;
+  }
+  return getCaseWObserved(ensembleKHZptr, subjIndex, left, rightSnap);
+}
+static char isCaseOrderedBefore(double **responseIn,
+                                uint     caseA,
+                                uint     caseB) {
+  if (responseIn[RF_startTimeIndex][caseA] < responseIn[RF_startTimeIndex][caseB]) {
+    return TRUE;
+  }
+  if (responseIn[RF_startTimeIndex][caseA] > responseIn[RF_startTimeIndex][caseB]) {
+    return FALSE;
+  }
+  if (responseIn[RF_timeIndex][caseA] < responseIn[RF_timeIndex][caseB]) {
+    return TRUE;
+  }
+  if (responseIn[RF_timeIndex][caseA] > responseIn[RF_timeIndex][caseB]) {
+    return FALSE;
+  }
+  return (caseA < caseB);
+}
+static double getCaseWExtendedRight(double **responseIn,
+                                    uint    *caseList,
+                                    uint     caseCount,
+                                    uint     caseID) {
+  uint p, cand, nextCase;
+  double right;
+  right = responseIn[RF_timeIndex][caseID];
+  nextCase = 0;
+  for (p = 1; p <= caseCount; p++) {
+    cand = caseList[p];
+    if (cand == caseID) {
+      continue;
+    }
+    if (isCaseOrderedBefore(responseIn, caseID, cand)) {
+      if ((nextCase == 0) || isCaseOrderedBefore(responseIn, cand, nextCase)) {
+        nextCase = cand;
+      }
+    }
+  }
+  if (nextCase > 0) {
+    if (right < responseIn[RF_startTimeIndex][nextCase]) {
+      right = responseIn[RF_startTimeIndex][nextCase];
+    }
+  }
+  return right;
+}
+static double getCaseW(double **ensembleKHZptr,
+                       uint     subjIndex,
+                       double   left,
+                       double   right,
+                       double   rightExtended,
+                       char     wMode) {
+  switch (wMode) {
+  case 1:
+    return getCaseWGrid(ensembleKHZptr, subjIndex, left, right);
+  case 3:
+    return getCaseWObserved(ensembleKHZptr, subjIndex, left, rightExtended);
+  case 2:
+  default:
+    return getCaseWObserved(ensembleKHZptr, subjIndex, left, right);
+  }
+}
+void calculateRiskLegacy(char mode) {
+  calculateRiskCore(mode, 1);
+}
 void calculateRisk(char mode) {
+  calculateRiskCore(mode, 2);
+}
+void calculateRiskExtended(char mode) {
+  calculateRiskCore(mode, 3);
+}
+void calculateRiskCore(char mode, char wMode) {
   double **ensembleKHZptr;
+  double  *ensembleDen;
   double  *riskPtr;
+  double  *wCasePtr;
+  double   caseWRisk;
   double unscaledRiskPartI, unscaledRiskPartII, unscaledRiskTotal;
+  double caseLeft, caseRight, caseRightExtended;
   double delta;
   uint caseID;
   char oobFlag, fullFlag;
+  uint idx1, idxk;
   uint i, j, k;
   uint     subjCount;
   double **responseIn;
@@ -587,49 +780,105 @@ void calculateRisk(char mode) {
     timeInterestIntervalCount  = SG_timeInterestIntervalCount;
     break;
   }
+  for (i = 1; i <= subjCount; i++) {
+    for (j = 1; j <= subjSlotCount[i]; j++) {
+      caseID = subjList[i][j];
+      caseLeft = responseIn[RF_startTimeIndex][caseID];
+      caseRight = responseIn[RF_timeIndex][caseID];
+      caseRightExtended = caseRight;
+      if (wMode == 3) {
+        caseRightExtended = getCaseWExtendedRight(responseIn,
+                                                  subjList[i],
+                                                  subjSlotCount[i],
+                                                  caseID);
+      }
+      SG_absWCaseTimeLeft_[caseID] = clipUnitTime(caseLeft);
+      SG_absWCaseTimeRight_[caseID] = getCaseWRightUsed(caseRight,
+                                                        caseRightExtended,
+                                                        wMode);
+    }
+  }
   while ((oobFlag == TRUE) || (fullFlag == TRUE)) {
     if (oobFlag == TRUE) {
+      ensembleDen    = RF_oobEnsembleDen;
       ensembleKHZptr = SG_oobEnsembleKHZptr;
       riskPtr = SG_oobRisk_;
+      wCasePtr = SG_oobWCase_;
     }
     else {
+      ensembleDen    = RF_fullEnsembleDen;
       ensembleKHZptr = SG_fullEnsembleKHZptr;
       riskPtr = SG_fullRisk_;
+      wCasePtr = SG_fullWCase_;      
     }
+    unscaledRiskTotal = 0;
     for (i = 1; i <= subjCount; i++) {
-      if (responseIn[RF_statusIndex][subjTailCaseMap[i]] == 1) {
-        if ( (timeInterestSubjTailIndex[i] == RF_sortedTimeInterestSize) ||
-            fabs(RF_timeInterest[timeInterestSubjTailIndex[i]] - responseIn[RF_timeIndex][subjTailCaseMap[i]]) < EPSILON2 ) {
-          unscaledRiskPartII = ensembleKHZptr[timeInterestSubjTailIndex[i]][i];
-          unscaledRiskPartII = - log(unscaledRiskPartII);
+      if (ensembleDen[i] > 0) {
+        if (responseIn[RF_statusIndex][subjTailCaseMap[i]] == 1) {
+          if (timeInterestSubjTailIndex[i] > 0) {
+            if ( (timeInterestSubjTailIndex[i] == RF_sortedTimeInterestSize) ||
+                 fabs(RF_timeInterest[timeInterestSubjTailIndex[i]] - responseIn[RF_timeIndex][subjTailCaseMap[i]]) < EPSILON2 ) {
+              unscaledRiskPartII = ensembleKHZptr[timeInterestSubjTailIndex[i]][i];
+              unscaledRiskPartII = - log(unscaledRiskPartII);
+            }
+            else {
+              unscaledRiskPartII = ensembleKHZptr[timeInterestSubjTailIndex[i] + 1][i];
+              unscaledRiskPartII = - log(unscaledRiskPartII);        
+            }
+          }
+          else {
+            unscaledRiskPartII = 0.0;
+          }
         }
         else {
-          unscaledRiskPartII = ensembleKHZptr[timeInterestSubjTailIndex[i] + 1][i];      
-          unscaledRiskPartII = - log(unscaledRiskPartII);        
+          unscaledRiskPartII = 0.0;
         }
-      }
-      else {
-        unscaledRiskPartII = 0.0;
-      }
-      unscaledRiskPartI = 0.0;
-      for (j = 1; j <= subjSlotCount[i]; j++) {
-        caseID = subjList[i][j];
-        if (timeInterestIntervalCount[caseID] > 0) {
-          if (timeInterestIntervalIndex[caseID][1] <= timeInterestSubjTailIndex[i]) {
-            delta = RF_timeInterest[timeInterestIntervalIndex[caseID][1]] - responseIn[RF_startTimeIndex][caseID];
-            unscaledRiskPartI = unscaledRiskPartI +
-              (ensembleKHZptr[ timeInterestIntervalIndex[caseID][1] ][i] * delta);
-            for (k = 2; k <= timeInterestIntervalCount[caseID]; k++) {
-              if (timeInterestIntervalIndex[caseID][k] <= timeInterestSubjTailIndex[i]) {            
-                unscaledRiskPartI = unscaledRiskPartI +
-                  (ensembleKHZptr[ timeInterestIntervalIndex[caseID][k] ][i] * 
-                   SG_timeInterestDelta[ timeInterestIntervalIndex[caseID][k] ]);
+        unscaledRiskPartI = 0.0;
+        for (j = 1; j <= subjSlotCount[i]; j++) {
+          caseID = subjList[i][j];
+          caseWRisk = 0.0;
+          if (timeInterestIntervalCount[caseID] > 0) {
+            if (timeInterestIntervalIndex[caseID][1] <= timeInterestSubjTailIndex[i]) {
+              idx1 = timeInterestIntervalIndex[caseID][1];
+              delta = RF_timeInterest[ idx1 ] - responseIn[RF_startTimeIndex][caseID];
+              caseWRisk += ensembleKHZptr[idx1][i] * delta;
+              for (k = 2; k <= timeInterestIntervalCount[caseID]; k++) {
+                idxk = timeInterestIntervalIndex[caseID][k];
+                if (idxk <= timeInterestSubjTailIndex[i]) {            
+                  caseWRisk += ensembleKHZptr[idxk][i] * SG_timeInterestDelta[idxk];
+                }
+                else {
+                  break;
+                }
               }
             }
           }
+          unscaledRiskPartI += caseWRisk;
+          caseLeft = responseIn[RF_startTimeIndex][caseID];
+          caseRight = responseIn[RF_timeIndex][caseID];
+          caseRightExtended = caseRight;
+          if (wMode == 3) {
+            caseRightExtended = getCaseWExtendedRight(responseIn,
+                                                      subjList[i],
+                                                      subjSlotCount[i],
+                                                      caseID);
+          }
+          wCasePtr[caseID] = getCaseW(ensembleKHZptr,
+                                      i,
+                                      caseLeft,
+                                      caseRight,
+                                      caseRightExtended,
+                                      wMode);
+        }          
+        unscaledRiskTotal = unscaledRiskPartI + unscaledRiskPartII;
+      }
+      else {
+        unscaledRiskTotal = RF_nativeNaN;
+        for (j = 1; j <= subjSlotCount[i]; j++) {
+          caseID = subjList[i][j];
+          wCasePtr[caseID] = RF_nativeNaN;
         }
       }
-      unscaledRiskTotal = unscaledRiskPartI + unscaledRiskPartII;
       riskPtr[i] = unscaledRiskTotal;
     }
     if (oobFlag == TRUE) {

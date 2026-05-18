@@ -25,5 +25,8 @@ void getPerformance(uint      serialTreeID,
                     double   *perfRGRptr);
 char getPerfFlag (char mode, uint serialTreeID);
 void calculateRisk(char mode);
+void calculateRiskLegacy(char mode);
+void calculateRiskExtended(char mode);
+void calculateRiskCore(char mode, char wMode);
 void calculateRiskRaw(char mode);
 #endif

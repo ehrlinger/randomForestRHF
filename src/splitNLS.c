@@ -59,7 +59,7 @@ char virtuallySplitNodeNLS (uint       treeID,
   xArray = augmObjCommon -> xArray;
   splitVector = dvector(1, repMembrSize);
   DistributionObj *distObj = stackRandomCovariates(treeID, baseParent, RF_mtry);
-  double phi, phiLeft, phiRight;
+  double phiLeft, phiRight;
   double max_phiLeft, max_phiRight;
   delta = RF_nativeNaN;     
   max_phiLeft = max_phiRight = RF_nativeNaN;  
@@ -67,7 +67,6 @@ char virtuallySplitNodeNLS (uint       treeID,
   double deltaMax;
   uint   indexMax;
   deltaMax = RF_nativeNaN;  
-  phi = parent -> phi;
   xvarCount = 0;
   result = FALSE;
   uint *localEventTimeCount, *localEventTimeIndex;
@@ -280,11 +279,31 @@ char virtuallySplitNodeNLS (uint       treeID,
         if (daughterFlag == LEFT) {
           localSplitIndicator[repMembrIndx[i]] = LEFT;
           (*leftSize) ++;
+          if (TRUE) {
+            if ((*leftSize < 1) || (*leftSize > repMembrSize)) {
+              RF_nativeError("\nBAD leftSize: tree=%u leaf=%u leftSize=%u repMembrSize=%u",
+                             treeID,
+                             baseLeft -> nodeID,
+                             *leftSize,
+                             repMembrSize);
+              RF_nativeExit();
+            }
+          }
           baseLeft -> repMembrIndx[*leftSize] = repMembrIndx[i];
         }
         else {
           localSplitIndicator[repMembrIndx[i]] = RIGHT;
           rghtSize ++;
+          if (TRUE) {
+            if ((rghtSize < 1) || (rghtSize > repMembrSize)) {
+              RF_nativeError("\nBAD rghtSize: tree=%u leaf=%u rghtSize=%u repMembrSize=%u",
+                             treeID,
+                             baseRight -> nodeID,
+                             rghtSize,
+                             repMembrSize);
+              RF_nativeExit();
+            }
+          }
           baseRight -> repMembrIndx[rghtSize] = repMembrIndx[i];
         }
       }
@@ -300,11 +319,31 @@ char virtuallySplitNodeNLS (uint       treeID,
         if (daughterFlag == LEFT) {
           localSplitIndicator[repMembrIndx[i]] = LEFT;
           (*leftSize) ++;
+          if (TRUE) {
+            if ((*leftSize < 1) || (*leftSize > repMembrSize)) {
+              RF_nativeError("\nBAD leftSize: tree=%u leaf=%u leftSize=%u repMembrSize=%u",
+                             treeID,
+                             baseLeft -> nodeID,
+                             *leftSize,
+                             repMembrSize);
+              RF_nativeExit();
+            }
+          }
           baseLeft -> repMembrIndx[*leftSize] = repMembrIndx[i];
         }
         else {
           localSplitIndicator[repMembrIndx[i]] = RIGHT;
           rghtSize ++;
+          if (TRUE) {
+            if ((rghtSize < 1) || (rghtSize > repMembrSize)) {
+              RF_nativeError("\nBAD rghtSize: tree=%u leaf=%u rghtSize=%u repMembrSize=%u",
+                             treeID,
+                             baseRight -> nodeID,
+                             rghtSize,
+                             repMembrSize);
+              RF_nativeExit();
+            }
+          }
           baseRight -> repMembrIndx[rghtSize] = repMembrIndx[i];
         }
       }

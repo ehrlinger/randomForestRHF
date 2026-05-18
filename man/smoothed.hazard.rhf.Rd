@@ -1,6 +1,6 @@
-\name{rhf.smoothed.hazard}
-\alias{rhf.smoothed.hazard}
-\alias{rhf.smooth.hazard}
+\name{smoothed.hazard.rhf}
+\alias{smoothed.hazard.rhf}
+\alias{smoothed.hazard}
 \title{Smoothed hazard and cumulative hazard estimates from a random hazard forest}
 
 \description{
@@ -13,7 +13,7 @@ returned object is a lightweight list designed to be directly usable by
 }
 
 \usage{
-rhf.smoothed.hazard(
+smoothed.hazard.rhf(
   o,
   method = c("median.loess", "loess"),
   oob = TRUE,
@@ -110,7 +110,9 @@ A list containing:
 
 
 \seealso{
-\code{\link{rhf}}, \code{\link{predict.rhf}}, \code{\link{plot.rhf}}
+  \code{\link{plot.rhf}},
+  \code{\link{predict.rhf}},
+  \code{\link{rhf}}
 }
 
 \examples{
@@ -131,13 +133,14 @@ o <- rhf(f, trn)
 p <- predict(o, tst)
 
 ## default: median(log leaf hazard) + loess
-so <- rhf.smoothed.hazard(o)
-sp <- rhf.smoothed.hazard(p)
+so <- smoothed.hazard(o)
+sp <- smoothed.hazard(p)
 
 ## the returned object can be passed directly to plot.rhf()
+oldpar <- par(mfrow=c(1,1))
 plot.rhf(so)
 plot.rhf(sp)
-
+par(oldpar)
 
 ## ------------------------------------------------------------
 ##  peak vo2
@@ -150,15 +153,19 @@ f <- "Surv(id, start, stop, event) ~ ."
 ## training
 o <- rhf(f, d)
 
+oldpar <- par(mfrow=c(1,1))
+
+
 ## median loess
-s0 <- rhf.smoothed.hazard(o) 
+s0 <- smoothed.hazard(o) 
 ids <- o$ensemble.id[1:3]
 plot.rhf(s0, idx = ids)
 
 ## loess smoothing 
-s1 <- rhf.smoothed.hazard(o, method = "loess")
+s1 <- smoothed.hazard(o, method = "loess")
 plot.rhf(s1, idx = ids)
 
+par(oldpar)
 }
 }
 

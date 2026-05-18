@@ -33,24 +33,29 @@ get.experimental.bits  <- function(experimental.bits, trace) {
         experimental.bits <- 0
     }
     else if (is.bit(experimental.bits, 0) && is.bit(experimental.bits, 1)) {
-        cat ("Endpoint Estimation:  ", is.bit(experimental.bits, 0), "\n")
-        cat ("Uniform Estimation:   ", is.bit(experimental.bits, 1), "\n")
-        stop("only one protocol bit allowed.")
+        stop(paste(paste0("Endpoint Estimation:  ", is.bit(experimental.bits, 0), "\n"),
+                   paste0("Uniform Estimation:   ", is.bit(experimental.bits, 1), "\n"),
+                   paste0("only one protocol bit allowed."),
+                   sep = "\n"))
     }
   }
   else {
     ## Default is UBK's rule when null.
     experimental.bits <- 2^1
   }
-  if (trace) {
-    cat ("Endpoint Estimation:  ", is.bit(experimental.bits, 0), "\n")
-    cat ("Uniform Estimation:   ", is.bit(experimental.bits, 1), "\n")
-    cat ("Uniform Head:         ", is.bit(experimental.bits, 2), "\n")
-    cat ("Uniform Tail:         ", is.bit(experimental.bits, 3), "\n")
+  if (isTRUE(trace)) {
+      message(
+          paste(
+              paste0("Endpoint Estimation:  ", is.bit(experimental.bits, 0)),
+              paste0("Uniform Estimation:   ", is.bit(experimental.bits, 1)),
+              paste0("Uniform Head:         ", is.bit(experimental.bits, 2)),
+              paste0("Uniform Tail:         ", is.bit(experimental.bits, 3)),
+              sep = "\n"
+          )
+      )
   }
   return (experimental.bits)
 }
-## This little function took just over 20 minutes on ChatGPT Pro.  Lol.
 # Returns TRUE if the given 0-7 bit is set in an 8-bit integer, FALSE otherwise.
 # - value: integer (vectorized); values outside 0..255 are masked to 8 bits
 # - bit: single integer in 0..7 (0 = least significant bit)
@@ -269,6 +274,20 @@ is.hidden.rt.opt  <- function(dots) {
   else {
     dots$real.time.options
   }
+}
+is.hidden.wmode <- function(dots) {
+    if (is.null(dots$wmode)) {
+        wmode <- 2
+    }
+    else {
+        wmode <- dots$wmode
+    }
+    return (wmode)
+}
+get.wmode.bits <- function(wmode) {
+    ## Only (1, 2, 3) are valid modes. We shift them to the local option bits. No error checking.
+    wmode <- bitwShiftL(wmode, 16)
+    return (wmode)
 }
 ## convert samptype option into native code parameter.
 get.samptype.bits <- function (samptype) {

@@ -229,11 +229,11 @@ further illustration and guidance on data preparation.
 }
 
 \seealso{
-  \code{\link{predict.rhf}},
+  \code{\link{auct.rhf}},
   \code{\link{plot.rhf}},
-  \code{\link{rhf.auct}},
-  \code{\link{rhf.smoothed.hazard}},
-  \code{\link{rhf.tune.treesize}}
+  \code{\link{predict.rhf}},
+  \code{\link{smoothed.hazard.rhf}},
+  \code{\link{tune.treesize.rhf}}
 }
 
 
@@ -241,7 +241,7 @@ further illustration and guidance on data preparation.
 
   
 ## ------------------------------------------------------------
-##  time-static pbc
+##  time-static pbc: parameters set for fast CRAN run
 ## ------------------------------------------------------------
 
 ## load the data
@@ -251,9 +251,8 @@ d <- convert.counting(Surv(days, status) ~ ., na.omit(pbc))
 ## set the formula
 f <- "Surv(id, start, stop, event) ~ ."
 
-## rhf with different nodesizes
-print((o <- rhf(f, d)))
-print(rhf(f, d, nodesize=15))
+## rhf call
+print((o <- rhf(f, d, ntree = 3)))
 
 ## smooth hazard estimator for specific cases
 plot(o, idx=c(1,5,10))
@@ -333,10 +332,10 @@ o1 <- rhf(f, d, nodesize=1)
 o2 <- rhf(f, d, nodesize=15)
 
 ## acquire auc-t
-a1.chf <- rhf.auct(o1) ## same as rhf.auct(o1, marker = "chf")
-a1.haz <- rhf.auct(o1, marker = "haz")
-a2.chf <- rhf.auct(o2) ## same as rhf.auct(o2, marker = "chf")
-a2.haz <- rhf.auct(o2, marker = "haz")
+a1.chf <- auct.rhf(o1) ## same as auct.rhf(o1, marker = "chf")
+a1.haz <- auct.rhf(o1, marker = "haz")
+a2.chf <- auct.rhf(o2) ## same as auct.rhf(o2, marker = "chf")
+a2.haz <- auct.rhf(o2, marker = "haz")
 
 ## print auc-t
 print(a1.chf)
@@ -364,8 +363,8 @@ oldpar <- par(mfrow=c(3,2))
 perf <- lapply(treesize, function(tz) {
   o <- rhf(f, d, treesize=tz, nodesize=1)
   print(o)
-  rO <- list(chf = rhf.auct(o, marker="chf"),
-             haz = rhf.auct(o, marker="haz"))
+  rO <- list(chf = auct.rhf(o, marker="chf"),
+             haz = auct.rhf(o, marker="haz"))
   plot(rO$chf, main=paste("chf marker, treesize=", tz))
   plot(rO$haz, main=paste("hazard marker, treesize=", tz))
   rO
@@ -380,21 +379,21 @@ par(oldpar)
 d <- hazard.simulation(1)$dta
 f <- "Surv(id, start, stop, event) ~ ."
 
-tune <- rhf.tune(f, d)  ## same as rhf.tune.treesize(f,d)
+tune <- tune.rhf(f, d)  ## same as rhf.tune.treesize(f,d)
 oldpar <- par(mfrow=c(1,1))
 plot(tune)
 par(oldpar)
 
 ## ------------------------------------------------------------
 ##  example illustrating guided feature selection
-##  using built in 'rhf.xvar.wt' helper
+##  using built in 'xvar.wt.rhf' helper
 ## ------------------------------------------------------------
 
 d <- hazard.simulation(1)$dta
 f <- "Surv(id, start, stop, event) ~ ."
 
 o <- rhf(f,d)
-o.gfs <- rhf(f,d, xvar.wt = rhf.xvar.wt(f, d))
+o.gfs <- rhf(f,d, xvar.wt = xvar.wt.rhf(f, d))
 
 print(o)
 print(o.gfs)

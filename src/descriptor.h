@@ -2,14 +2,14 @@
 #define RF_DESCRIPTOR_H
 #include <stdint.h>
 #define SG_TCP_BUFFER_SIZE 0xFFFF
-#define SG_DESC_CLOSED       0x20
-#define SG_DESC_OPENED       0x21
-#define SG_DESC_PREREAD      0x22
-#define SG_DESC_READING      0x23
-#define SG_DESC_POSTREAD     0x24
-#define SG_DESC_PREDICTING   0x25
-#define SG_DESC_POSTPREDICTING  0x26
-#define SG_DESC_PREWRITING      0x27
+#define SG_DESC_CLOSED          0x20
+#define SG_DESC_OPENED          0x21
+#define SG_DESC_PREREAD         0x22
+#define SG_DESC_READING         0x23
+#define SG_DESC_POSTREAD        0x24
+#define SG_DESC_PREDICTING      0x25
+#define SG_DESC_POSTPREDICTING  0x26 
+#define SG_DESC_PREWRITING      0x27 
 #define SG_DESC_WRITING         0x28
 #define SG_DESC_POSTWRITING     0x29
 typedef struct predictorPacket PredictorPacket;

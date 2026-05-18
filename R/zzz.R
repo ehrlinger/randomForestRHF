@@ -6,7 +6,7 @@
                               package.version,
                               "\n",
                               "\n",
-                              paste("Type ", pkgname, "news() to see new features, changes, and bug fixes.", sep = ""),
+                              paste("Type rhf.news() to see new features, changes, and bug fixes.", sep = ""),
                               "\n",
                               "\n"))
 }

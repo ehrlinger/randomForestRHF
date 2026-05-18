@@ -1,6 +1,6 @@
 ## Use R's portable OpenMP flags (do NOT hard-code -fopenmp etc.)
 PKG_CFLAGS = $(SHLIB_OPENMP_CFLAGS)
-PKG_LIBS   = $(SHLIB_OPENMP_CFLAGS) 
+PKG_LIBS   = $(SHLIB_OPENMP_CFLAGS) -lws2_32
 
 PKG_CPPFLAGS = -Ishared
 

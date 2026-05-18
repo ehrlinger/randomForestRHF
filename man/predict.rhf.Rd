@@ -36,6 +36,32 @@
   
 }
 
+\value{
+An object of class \code{c("rhf", "predict", family)}. The returned list
+contains the fitted forest together with prediction summaries on the
+evaluation grid \code{time.interest}. Important components include:
+
+\itemize{
+  \item \code{hazard.test}, \code{chf.test}, \code{risk.test}, and
+    \code{int.haz.test}: test-set hazard, cumulative hazard, risk, and
+    integrated-hazard summaries when \code{newdata} is supplied.
+  \item \code{hazard.oob}, \code{chf.oob}, \code{risk.oob}, and
+    \code{int.haz.oob}: out-of-bag summaries for the training data.
+  \item \code{hazard.inbag}, \code{chf.inbag}, \code{risk.inbag}, and
+    \code{int.haz.inbag}: in-bag summaries when available.
+  \item \code{id}, \code{yvar}, and \code{xvar}: identifiers and processed
+    outcome/predictor data used by the returned prediction object.
+  \item \code{pseudo.membership} and \code{inbag}: terminal-node membership
+    and inbag information when \code{membership = TRUE}.
+  \item \code{forest}: the fitted forest object used to generate the
+    predictions.
+}
+
+If \code{newdata} is omitted, the function restores predictions for the
+original training data using the stored forest and returns the same class of
+object.
+}
+
 \author{
 
   Hemant Ishwaran and Udaya B. Kogalur
@@ -64,8 +90,6 @@
 }
 
 \examples{
-\donttest{
-
 
 ## ------------------------------------------------------------
 ## canonical train/test example (synthetic data)
@@ -77,13 +101,14 @@ tst <- hazard.simulation(simID)$dta
 f <- "Surv(id, start, stop, event) ~ ."
 
 ## training
-o <- rhf(f, trn)
+o <- rhf(f, trn, ntree = 3)
 print(o)
 
 ## testing
 p <- predict(o, tst)
 print(p)
 
+\donttest{
 
 ## ------------------------------------------------------------
 ##  pbc: train/test example

@@ -93,6 +93,7 @@ void getAtRiskAndEventCount(uint treeID, TerminalSurvival *parent) {
   double  *statusPtr;
   uint *membrIndx;
   uint  membrSize;
+  uint  mtime;
   uint i, j, k;
   uint ii;
   char eventFlag;
@@ -108,6 +109,19 @@ void getAtRiskAndEventCount(uint treeID, TerminalSurvival *parent) {
   statusPtr = ((Node *) (parent -> base -> mate)) -> augm -> common -> yArray[RF_statusIndex];
   for (i = 1; i <= membrSize; i++) {
     ii = membrIndx[i];
+    if (TRUE) {
+      mtime = RF_masterTimeIndex[treeID][ii];
+      if (mtime < 1 || mtime > parent-> mTimeSize) {
+        RF_nativeError("\nBAD masterTimeIndex: tree=%u leaf=%u ii=%u mt=%u mTimeSize=%u repMembrSize=%u",
+                       treeID,
+                       parent -> base -> nodeID,
+                       ii,
+                       mtime,
+                       parent -> mTimeSize,
+                       membrSize);
+        RF_nativeExit();
+      }
+    }
     for (j = 1; j <= RF_masterTimeIndex[treeID][ii]; j++) {
       (parent -> atRiskCount)[j] ++;
     }
@@ -324,6 +338,7 @@ void getTailCorrections(uint treeID, TerminalSurvival *parent) {
   double stepValue;
   double stepHazard;
   uint j, k;
+  stepHazard = 0;  
   if (parent -> eTimeSize > 0) {
     if ( ( RF_masterTime[parent -> eventTimeIndex[parent -> eTimeSize]] - RF_timeInterest[parent -> sTimeSize]) > EPSILON2) {
       for (k = parent -> sTimeSize; k >= 1; k--) {

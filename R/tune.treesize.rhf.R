@@ -1,11 +1,11 @@
 ## tune.treesize: choose treesize to optimize either OOB risk or OOB iAUC.uno
-rhf.tune.treesize <- function(formula, data,
+tune.treesize.rhf <- function(formula, data,
                               ntree = 500,
                               nsplit = 10,
                               nodesize = NULL,
                               ## performance measure
                               perf = c("risk", "iAUC"),
-                              ## extra arguments passed to rhf.auct when perf = "iAUC"
+                              ## extra arguments passed to auct.rhf when perf = "iAUC"
                               auct.args = NULL,
                               ## search bounds
                               lower = 2L,
@@ -87,10 +87,10 @@ rhf.tune.treesize <- function(formula, data,
       args.auct <- auct.args
       if (is.null(args.auct)) args.auct <- list()
       args.auct$object <- fit  ## enforce
-      auct.obj <- try(do.call(rhf.auct, args.auct), silent = TRUE)
+      auct.obj <- try(do.call(auct.rhf, args.auct), silent = TRUE)
       if (inherits(auct.obj, "try-error")) {
         if (isTRUE(verbose)) {
-          message(sprintf("treesize = %d   rhf.auct() failed; treating criterion as +Inf", ts))
+          message(sprintf("treesize = %d   auct.rhf() failed; treating criterion as +Inf", ts))
         }
         r <- Inf
         if (!is.null(iauc.cache))    assign(key, NA_real_, envir = iauc.cache)
@@ -249,15 +249,13 @@ rhf.tune.treesize <- function(formula, data,
     path        = path
   )
   if (!is.null(best.fit)) out$forest <- best.fit
-  class(out) <- "rhf.tune.treesize"
+  class(out) <- "tune.treesize.rhf"
   out
 }
-rhf.tune <- rhf.tune.treesize
-## Convenience wrapper: tune treesize by iAUC.uno from rhf.auct
-rhf.tune.iAUC <- function(formula, data,
-                          auct.args = NULL,
-                          ...) {
-  rhf.tune.treesize(
+tune.rhf <- tune.treesize.rhf
+## Convenience wrapper: tune treesize by iAUC.uno from auct.rhf
+tune.iAUC.rhf <- function(formula, data, auct.args = NULL, ...) {
+  tune.treesize.rhf(
     formula  = formula,
     data     = data,
     perf     = "iAUC",
@@ -265,15 +263,16 @@ rhf.tune.iAUC <- function(formula, data,
     ...
   )
 }
+tune.iAUC <- tune.iAUC.rhf
 ## plot results (metric vs treesize, also has bootstrap now)
-plot.rhf.tune.treesize <- function(x,
+plot.tune.treesize.rhf <- function(x,
                                    ylab   = NULL,
                                    main   = NULL,
                                    se.band = TRUE,
                                    se.mult = 1,
                                    ylim   = NULL,
                                    ...) {
-  stopifnot(inherits(x, "rhf.tune.treesize"))
+  stopifnot(inherits(x, "tune.treesize.rhf"))
   path <- x$path
   perf <- if (!is.null(x$perf)) x$perf else "risk"
   if (perf == "iAUC" && "iAUC" %in% names(path)) {
@@ -369,4 +368,3 @@ plot.rhf.tune.treesize <- function(x,
           line = 0.5)
   }
 }
-plot.rhf.tune <- plot.rhf.tune.treesize 

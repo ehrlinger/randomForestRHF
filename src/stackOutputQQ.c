@@ -25,7 +25,9 @@ void stackTNQualitativeObjects(char     mode,
                                uint   ***pSG_ombrTNodeCT_ptr,
                                uint   **pSG_rmbrTNodeID_,
                                uint   **pSG_imbrTNodeID_,
-                               uint   **pSG_ombrTNodeID_) {
+                               uint   **pSG_ombrTNodeID_,
+                               uint   **pOOB_SZ_,
+                               uint   **pIBG_SZ_) {
   ulong localSize;
   uint treeID;
   if (RF_optHigh & OPT_TERM_OUTG) {
@@ -134,6 +136,31 @@ void stackTNQualitativeObjects(char     mode,
                                                   localSize);
       (*pSG_ombrTNodeID_) --;
     }
+    localSize = RF_ntree;
+    *pOOB_SZ_ = (uint*) stackAndProtect(RF_auxDimConsts,
+                                        mode,
+                                        &RF_nativeIndex,
+                                        NATIVE_TYPE_INTEGER,
+                                        SG_OOB_SZ_CASE,
+                                        localSize,
+                                        0,
+                                        SG_sexpStringOutgoing,
+                                        NULL,
+                                        1,
+                                        localSize);
+    (*pOOB_SZ_) --;
+    *pIBG_SZ_ = (uint*) stackAndProtect(RF_auxDimConsts,
+                                        mode,
+                                        &RF_nativeIndex,
+                                        NATIVE_TYPE_INTEGER,
+                                        SG_IBG_SZ_CASE,
+                                        localSize,
+                                        0,
+                                        SG_sexpStringOutgoing,
+                                        NULL,
+                                        1,
+                                        localSize);
+    (*pIBG_SZ_) --;
   }
 }
 void stackTNQualitativeObjectsForestPtr(char mode,
@@ -147,8 +174,8 @@ void stackTNQualitativeObjectsForestPtr(char mode,
   Terminal     *tTerm;
   uint treeID;
   uint termCount;
-  uint offsetID_rmbr, offsetID_imbr, offsetID_ombr;
-  uint localSize;
+  ulong offsetID_rmbr, offsetID_imbr, offsetID_ombr;
+  ulong localSize;
   uint k;
   tTerm = NULL;  
   if (RF_optHigh & OPT_TERM_OUTG) {
@@ -243,12 +270,18 @@ void unstackTNQualitativeObjectsForestPtr(char mode,
   }
 }
 void writeTNQualitativeObjectsOutput(char mode,
+                                     uint           *tLeafCount,
+                                     TerminalBase ***tTermList,
+                                     uint           *oobSizeCase,
+                                     uint           *ibgSizeCase,
                                      uint  **rmbrTNodeCT,
                                      uint  **imbrTNodeCT,
                                      uint  **ombrTNodeCT,
                                      uint ***rmbrTNodeID,
                                      uint ***imbrTNodeID,
-                                     uint ***ombrTNodeID) {
+                                     uint ***ombrTNodeID,
+                                     uint   *OOB_SZ,
+                                     uint   *IBG_SZ) {
   Terminal *tTerm;
   uint treeID;
   uint j, k;
@@ -276,6 +309,10 @@ void writeTNQualitativeObjectsOutput(char mode,
           }
         }
       }
+    }
+    for (treeID = 1; treeID <= RF_ntree; treeID ++) {
+      OOB_SZ[treeID] = oobSizeCase[treeID];
+      IBG_SZ[treeID] = ibgSizeCase[treeID];
     }
   }
 }

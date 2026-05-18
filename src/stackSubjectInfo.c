@@ -26,7 +26,7 @@ char stackSubjectArraysOnly(char     mode,
                             uint   **caseMap,
                             uint   **subjMap,
                             uint    *subjCount) {
-  uint i, j;
+  uint i;
   char result;
   result = TRUE;
   *subjList = NULL;

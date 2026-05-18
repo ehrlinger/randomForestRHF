@@ -1,21 +1,21 @@
-\name{rhf.tune.treesize}
-\alias{rhf.tune.treesize}
-\alias{rhf.tune}
-\alias{rhf.tune.iAUC}
-\alias{plot.rhf.tune.treesize}
-\alias{plot.rhf.tune}
+\name{tune.treesize.rhf}
+\alias{tune.treesize.rhf}
+\alias{tune.rhf}
+\alias{tune.iAUC.rhf}
+\alias{tune.iAUC}
+\alias{plot.tune.treesize.rhf}
 \title{Tune tree size for Random Hazard Forests}
 
 \description{
 
   Tune the \code{treesize} for a Random Hazard Forest using either
   out-of-bag (OOB) empirical risk or an OOB integrated AUC computed by
-  \code{\link{rhf.auct}}.
+  \code{\link{auct.rhf}}.
 
 }
 
 \usage{
-rhf.tune.treesize(
+tune.treesize.rhf(
   formula,
   data,
   ntree = 500,
@@ -36,14 +36,14 @@ rhf.tune.treesize(
 )
 
 
-rhf.tune.iAUC(
+tune.iAUC.rhf(
   formula,
   data,
   auct.args = NULL,
   ...
 )
 
-\method{plot}{rhf.tune.treesize}(x, ylab = NULL, main = NULL,
+\method{plot}{tune.treesize.rhf}(x, ylab = NULL, main = NULL,
     se.band = TRUE, se.mult = 1, ylim = NULL, \dots)
 }
 
@@ -65,10 +65,10 @@ rhf.tune.iAUC(
 
   \item{perf}{Tuning criterion. \code{"risk"} minimizes mean OOB risk;
     \code{"iAUC"} maximizes integrated AUC obtained using
-    \code{\link{rhf.auct}}.}
+    \code{\link{auct.rhf}}.}
 
   \item{auct.args}{Optional list of arguments passed to
-    \code{\link{rhf.auct}} when \code{perf = "iAUC"}. }
+    \code{\link{auct.rhf}} when \code{perf = "iAUC"}. }
 
   \item{lower}{Smallest \code{treesize} considered.}
 
@@ -103,20 +103,22 @@ rhf.tune.iAUC(
 }
 
 \details{
+
+The alias \code{tune.rhf} is provided for convenience.
+
   
-Rpeatedly fits a hazard forest with different values of
-\code{treesize} and selects the value that optimizes the chosen
-criterion \code{perf}. When \code{perf = "risk"}, the criterion is the
-mean OOB risk. When \code{perf = "iAUC"}, \code{\link{rhf.auct}} is
-applied to each fit and the criterion is \code{1 - iAUC.uno}. The alias
-\code{rhf.tune} is provided for convenience. \code{rhf.tune.iAUC} is a
-wrapper around \code{rhf.tune.treesize} with \code{perf = "iAUC"}, using
-default \code{rhf.auct} settings when \code{auct.args = NULL}.
+Rpeatedly fits a hazard forest with different values of \code{treesize}
+and selects the value that optimizes the chosen criterion
+\code{perf}. When \code{perf = "risk"}, the criterion is the mean OOB
+risk. When \code{perf = "iAUC"}, \code{\link{auct.rhf}} is applied to
+each fit and the criterion is \code{1 - iAUC.uno}.  \code{tune.iAUC} is
+a wrapper around \code{tune.rhf} with \code{perf = "iAUC"}, using
+default \code{auct.rhf} settings when \code{auct.args = NULL}.
 
 }
 
 \value{
-An object of class \code{"rhf.tune.treesize"} with components
+An object of class \code{"tune.treesize.rhf"} with components
 \itemize{
   \item \code{best.size}: optimal \code{treesize};
   \item \code{best.err}: minimal criterion value (mean OOB risk if
@@ -129,7 +131,7 @@ An object of class \code{"rhf.tune.treesize"} with components
 }
 
 \seealso{
-\code{\link{rhf}}, \code{\link{rhf.auct}}
+\code{\link{rhf}}, \code{\link{auct.rhf}}
 }
 
 \examples{
@@ -142,19 +144,19 @@ set.seed(7)
 d <- hazard.simulation(1)$dta
 f <- "Surv(id, start, stop, event) ~ ."
 
-## rhf.tune is an alias for rhf.tune.treesize
-tune.risk <- rhf.tune(f, d)  ## same as rhf.tune.treesize(f, d)
+## tune.rhf is an alias for tune.treesize.rhf
+tuneRisk <- tune.rhf(f, d)  ## same as tune.treesize.rhf(f, d)
 
 oldpar <- par(mfrow = c(1, 1))
-plot(tune.risk)
+plot(tuneRisk)
 par(oldpar)
 
-tune.risk$best.size    # treesize minimizing mean OOB risk
-tune.risk$best.err
+tuneRisk$best.size    # treesize minimizing mean OOB risk
+tuneRisk$best.err
 
 ## Access the tuned forest and refit AUC diagnostics if desired
-best.forest <- tune.risk$forest
-a.risk <- rhf.auct(best.forest)
+best.forest <- tuneRisk$forest
+a.risk <- auct.rhf(best.forest)
 print(a.risk$iAUC.uno)
 
 
@@ -163,14 +165,17 @@ print(a.risk$iAUC.uno)
 ## ------------------------------------------------------------
 
 set.seed(7)
-tune.iauc <- rhf.tune.iAUC(f, d)
+tuneiAUC <- tune.iAUC(f, d)
 
-plot(tune.iauc)        
-print(tune.iauc$best.size)
-print(1 - tune.iauc$best.err)
+oldpar <- par(mfrow = c(1, 1))
+plot(tuneiAUC)
+par(oldpar)
 
-best.forest.iauc <- tune.iauc$forest
-a.iauc <- rhf.auct(best.forest.iauc)
+print(tuneiAUC$best.size)
+print(1 - tuneiAUC$best.err)
+
+best.forest.iauc <- tuneiAUC$forest
+a.iauc <- auct.rhf(best.forest.iauc)
 print(1 - a.iauc$iAUC.uno)
 
 
@@ -179,15 +184,17 @@ print(1 - a.iauc$iAUC.uno)
 ## ------------------------------------------------------------
 
 set.seed(7)
-tune.iauc.boot <- rhf.tune.iAUC(f, d, auct.args=list(bootstrap.rep=25))
-plot(tune.iauc.boot)        
+tuneiAUC.boot <- tune.iAUC(f, d, auct.args=list(bootstrap.rep=25))
+oldpar <- par(mfrow = c(1, 1))
+plot(tuneiAUC.boot)        
+par(oldpar)
 
 ## ------------------------------------------------------------
 ## Example: tuning by hazard-based incident AUC
 ## ------------------------------------------------------------
 
 set.seed(7)
-tune.haz.inc <- rhf.tune.iAUC(
+tuneHazInc <- tune.iAUC(
   f, d,
   auct.args = list(
     marker       = "hazard",
@@ -195,19 +202,22 @@ tune.haz.inc <- rhf.tune.iAUC(
   )
 )
 
-plot(tune.haz.inc)
-print(tune.haz.inc$best.size)
-print(tune.haz.inc$best.err)
+oldpar <- par(mfrow = c(1, 1))
+plot(tuneHazInc)
+par(oldpar)
+
+print(tuneHazInc$best.size)
+print(tuneHazInc$best.err)
 
 ## Confirm the tuned incident AUC on the selected forest
-best.forest.haz <- tune.haz.inc$forest
-a.haz.inc <- rhf.auct(
+best.forest.haz <- tuneHazInc$forest
+aHazInc <- auct.rhf(
   best.forest.haz,
   marker  = "hazard",
   method  = "incident"
 )
-print(a.haz.inc)
-print(1 - a.haz.inc$iAUC.uno)
+print(aHazInc)
+print(1 - aHazInc$iAUC.uno)
 
 }}
 

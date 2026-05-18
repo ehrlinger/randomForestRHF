@@ -44,10 +44,16 @@ predict.rhf.workhorse <-  function(object,
   subj.unique.count <- length(unique(subj))
   case.wt  <- get.weight(NULL, subj.unique.count)
   event.info <- object$event.info
-  ## get max.time
-  max.time <- object$max.time
+  ## get time-map information
+  max.time <- object$max.time 
+  time.map <- object$time.map
+  if (is.null(time.map)) {
+    time.map <- list(method = "legacy",
+                     max.time = as.double(max.time),
+                     tau = as.double(max.time))
+  }
   ## obtain y-outcome information from the grow object; scale y to [0,1]
-  yvar <- .iscale.yvar(object$yvar, max.time)
+  yvar <- .iscale.yvar(object$yvar, time.map)
   yvar.names <- object$yvar.names
   yvar.types <- object$yvar.types
   yvar.nlevels  <- object$yvar.factor$nlevels
@@ -74,17 +80,19 @@ predict.rhf.workhorse <-  function(object,
   object <- object$forest
   ## confirm version coherence
   if (is.null(object$version)) {
-    cat("\n  This function only works with objects created with the following minimum version of the package:")
-    cat("\n    Minimum version:  ")
-    cat("0.0.0.0")
-    cat("\n    Your version:     ")
-    cat("unknown")
-    cat("\n")
-    stop()
+      stop(
+          paste(
+              "This function only works with objects created with the following minimum version of the package:",
+                     "  Minimum version:  0.0.0.0",
+              paste0("  Your version:     unknown"),
+              sep = "\n"
+          ),
+          call. = FALSE
+      )
   }
   else {
     object.version <- as.integer(unlist(strsplit(object$version, "[.]")))
-    installed.version <- as.integer(unlist(strsplit("0.0.29", "[.]")))
+    installed.version <- as.integer(unlist(strsplit("1.0.1", "[.]")))
     minimum.version <- as.integer(unlist(strsplit("0.0.0.0", "[.]")))
     object.version.adj <- object.version[1] + (object.version[2]/10) + (object.version[3]/100)
     installed.version.adj <- installed.version[1] + (installed.version[2]/10) + (installed.version[3]/100)
@@ -95,13 +103,15 @@ predict.rhf.workhorse <-  function(object,
       ## We are okay
     }
     else {
-      cat("\n  This function only works with objects created with the following minimum version of the package:")
-      cat("\n    Minimum version:  ")
-      cat("0.0.0.0")
-      cat("\n    Your version:     ")
-      cat(object$version)
-      cat("\n")
-      stop()
+      stop(
+          paste(
+              "This function only works with objects created with the following minimum version of the package:",
+              "  Minimum version:  0.0.0.0",
+              paste0("  Your version:     ", object$version),
+              sep = "\n"
+          ),
+          call. = FALSE
+      )
     }
   }
   ##--------------------------------------------------------
@@ -110,11 +120,12 @@ predict.rhf.workhorse <-  function(object,
   ##
   ##--------------------------------------------------------
   if (!restore.mode) {
-    ## clean up test data (handle missingness, cap time at max.time, scale y)
+    ## clean up test data (handle missingness, scale time, scale y)
     nd <- cleanup.counting.newdata(newdata    = newdata,
                                    xvar.names = xvar.names,
                                    yvar.names = yvar.names,
                                    subj.names = subj.names,
+                                   time.map   = time.map,
                                    max.time   = max.time)
     ## overwrite with cleaned version
     newdata   <- nd$newdata
@@ -219,7 +230,7 @@ predict.rhf.workhorse <-  function(object,
                                        if (is.null(m.target.idx)) NULL else as.integer(m.target.idx)),
                                   list(as.integer(length(yvar.types)),
                                        if (is.null(yvar.types)) NULL else as.character(yvar.types),
-                                       if (is.null(yvar.types)) NULL else as.integer(yvar.nlevels),
+                                       if (is.null(yvar.nlevels)) NULL else as.integer(yvar.nlevels),
                                        if (is.null(yvar.nlevels)) NULL else sapply(1:length(yvar.nlevels), function(nn) {as.integer(length(yvar.nlevels[[nn]]))}),
                                        if (is.null(subj)) NULL else as.integer(subj),
                                        if (is.null(event.info)) as.integer(0) else as.integer(length(event.info$event.type)),
@@ -233,8 +244,8 @@ predict.rhf.workhorse <-  function(object,
                                   },
                                   if (is.null(yvar.types)) NULL else as.double(as.vector(data.matrix(yvar))),
                                   list(as.integer(ncol(xvar)),
-                                       as.character(xvar.types),
-                                       if (is.null(xvar.types)) NULL else as.integer(xvar.nlevels),
+                                       if (is.null(xvar.types)) NULL else as.character(xvar.types),
+                                       if (is.null(xvar.nlevels)) NULL else as.integer(xvar.nlevels),
                                        if (is.null(xvar.nlevels)) NULL else sapply(1:length(xvar.nlevels), function(nn) {as.integer(length(xvar.nlevels[[nn]]))}),
                                        NULL,
                                        NULL),
@@ -297,6 +308,8 @@ predict.rhf.workhorse <-  function(object,
       chf.oob <- NULL
       risk.ibg     <- NULL
       risk.oob     <- NULL
+      int.haz.ibg <- NULL
+      int.haz.oob <- NULL
       inbag.out <- NULL
       pseudo.membership <- NULL
   } 
@@ -347,10 +360,31 @@ predict.rhf.workhorse <-  function(object,
     } else {
       risk.oob <- NULL
     }
+    if (!is.null(nativeOutput$ibgWCase)) {
+        int.haz.ibg <- nativeOutput$ibgWCase
+    } else {
+        int.haz.ibg <- NULL
+    }
+    if (!is.null(nativeOutput$oobWCase)) {
+        int.haz.oob <- nativeOutput$oobWCase
+    } else {
+        int.haz.oob <- NULL
+    }
+    if (!is.null(nativeOutput$absWCaseTimeLeft)) {
+        int.haz.left <- .inverse.time(nativeOutput$absWCaseTimeLeft, time.map)
+    } else {
+        int.haz.left <- NULL
+    }
+    if (!is.null(nativeOutput$absWCaseTimeRight)) {
+        int.haz.right <- .inverse.time(nativeOutput$absWCaseTimeRight, time.map)
+    } else {
+        int.haz.right <- NULL
+    }
     hazard.tst  <- NULL
     chf.tst  <- NULL
     unscaled.risk.tst  <- NULL
     risk.tst     <- NULL
+    int.haz.tst <- NULL
     ttmbrCaseCt <- NULL
     ttmbrCaseId <- NULL
   } else {
@@ -374,6 +408,21 @@ predict.rhf.workhorse <-  function(object,
       risk.tst <- nativeOutput$ibgRisk
     } else {
       risk.tst <- NULL
+    }
+    if (!is.null(nativeOutput$ibgWCase)) {
+        int.haz.tst <- nativeOutput$ibgWCase
+    } else {
+        int.haz.tst <- NULL
+    }
+    if (!is.null(nativeOutput$absWCaseTimeLeft)) {
+      int.haz.left <- .inverse.time(nativeOutput$absWCaseTimeLeft, time.map)
+    } else {
+      int.haz.left <- NULL
+    }
+    if (!is.null(nativeOutput$absWCaseTimeRight)) {
+      int.haz.right <- .inverse.time(nativeOutput$absWCaseTimeRight, time.map)
+    } else {
+      int.haz.right <- NULL
     }
     ## We use the existing oob data structure to output the test case counts and ids.
     ttmbrCaseCt = nativeOutput$tombrCaseCt
@@ -426,26 +475,27 @@ predict.rhf.workhorse <-  function(object,
   ## set this to NULL 
   err.rate <- NULL
   ## scale values back to original time scale
-  if (!is.null(hazard.ibg)) hazard.ibg = hazard.ibg / max.time
-  if (!is.null(hazard.oob)) hazard.oob = hazard.oob / max.time
-  if (!is.null(hazard.tst)) hazard.tst = hazard.tst / max.time
-  if (!is.null(chf.ibg)) chf.ibg = chf.ibg / max.time
-  if (!is.null(chf.oob)) chf.oob = chf.oob / max.time
-  if (!is.null(chf.tst)) chf.tst = chf.tst / max.time
-  if (!is.null(t.chf)) t.chf = lapply(t.chf, function(H) H / max.time)
-  if (!is.null(t.hazard)) t.hazard = lapply(t.hazard, function(h) h / max.time)
+  hz.scale <- .hazard.scale(event.info$time.interest, time.map)
+  if (!is.null(hazard.ibg)) hazard.ibg <- sweep(hazard.ibg, 2L, hz.scale, "*")
+  if (!is.null(hazard.oob)) hazard.oob <- sweep(hazard.oob, 2L, hz.scale, "*")
+  if (!is.null(hazard.tst)) hazard.tst <- sweep(hazard.tst, 2L, hz.scale, "*")
+  if (!is.null(t.hazard)) {
+    t.hazard <- lapply(t.hazard, function(h) sweep(h, 2L, hz.scale, "*"))
+  }
+  ## DO NOT rescale chf or t.chf
   ## make the output object
   rhfOutput <- list(
     forest = object,
     family = family,
     n = n.observed,
     ntree = ntree,
-    yvar = if (restore.mode) as.data.frame(.scale.yvar(yvar, max.time)) else as.data.frame(.scale.yvar(yvar.newdata, max.time)),
+    yvar = if (restore.mode) as.data.frame(.scale.yvar(yvar, time.map)) else as.data.frame(.scale.yvar(yvar.newdata, time.map)),
     xvar = if (restore.mode) xvar else xvar.newdata,
     xvar.time = object$xvar.time, 
     hcut = hcut,
     max.time = max.time,
-    time.interest = event.info$time.interest * max.time,
+    time.map = time.map,
+    time.interest = .inverse.time(event.info$time.interest, time.map),
     event.info = event.info,
     ensemble.id = ensemble.id,
     hazard.inbag = hazard.ibg,
@@ -457,6 +507,11 @@ predict.rhf.workhorse <-  function(object,
     risk.inbag = risk.ibg,
     risk.oob   = risk.oob,
     risk.test  = risk.tst,
+    int.haz.inbag = int.haz.ibg,
+    int.haz.oob   = int.haz.oob,
+    int.haz.test  = int.haz.tst,
+    int.haz.left = int.haz.left,
+    int.haz.right = int.haz.right,
     t.chf = t.chf,
     t.hazard = t.hazard,
     t.haz.time.cnt = t.haz.time.cnt,

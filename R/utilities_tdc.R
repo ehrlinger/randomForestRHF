@@ -4,46 +4,68 @@
 ##
 ####################################################################
 ## converts a standard survival data set to counting process format
+## scale is ignored but kept in place for legacy
 convert.counting <- function(f, dta, scale = FALSE) {
-  ## coherce formula
+  ## coerce formula
   f <- as.formula(f)
-  ## extract name of time
-  time.nm <- all.vars(f)[1]
+  ## extract names
+  time.nm  <- all.vars(f)[1]
   event.nm <- all.vars(f)[2]
-  ## remove all NA values
+  ## remove missing values
   dta <- na.omit(dta)
-  ## map time to [0, 1]
-  time <- dta[, time.nm]
-  if (scale) {
-    time <- time / max(time)
+  ## raw time
+  time <- as.numeric(dta[[time.nm]])
+  if (any(!is.finite(time))) {
+    stop("Non-finite time values found.")
   }
-  ## use survSplit with cutoff at zero to process to desired format
-  data.frame(id = 1:nrow(dta),
+  if (any(time < 0, na.rm = TRUE)) {
+    stop("time values cannot be negative")
+  }
+  if (isTRUE(scale)) {
+    warning("'scale=TRUE' is deprecated for RHF workflows: rhf() now maps time internally. Returning raw times.")
+  }
+  data.frame(id = seq_len(nrow(dta)),
              start = 0,
              stop = time,
-             event = dta[, event.nm],
+             event = dta[[event.nm]],
              dta[, !(colnames(dta) %in% all.vars(f)[1:2]), drop = FALSE])
 }
 ## clean up counting process data
-cleanup.counting <- function(dta, xvar.names = NULL, yvar.names, subj.names, sorted = FALSE, eps = 1e-6) {
+cleanup.counting <- function(dta,
+                             xvar.names = NULL,
+                             yvar.names,
+                             subj.names,
+                             sorted = FALSE,
+                             eps = 1e-6) {
   ## work out candidate x variables
   if (is.null(xvar.names)) {
-    ## default: all non-subject, non-y columns
     xvar.candidate <- setdiff(colnames(dta), c(subj.names, yvar.names))
   } else {
-    ## user-specified x variables
     missing.x <- setdiff(xvar.names, colnames(dta))
     if (length(missing.x) > 0L) {
       stop("The following xvar.names are not columns of 'dta': ",
            paste(missing.x, collapse = ", "))
     }
-    ## drop any subject / y columns accidentally listed as x
     xvar.candidate <- setdiff(unique(xvar.names), c(subj.names, yvar.names))
   }
-  xvar.all   <- xvar.candidate  ## original set of x variables
-  xvar.names <- xvar.candidate  ## mutable copy used below
+  xvar.all   <- xvar.candidate
+  xvar.names <- xvar.candidate
+  ## coerce start/stop once, early
+  start.nm <- yvar.names[1L]
+  stop.nm  <- yvar.names[2L]
+  for (nm in c(start.nm, stop.nm)) {
+    v <- dta[[nm]]
+    if (is.factor(v)) {
+      v <- as.numeric(as.character(v))
+    } else {
+      v <- as.numeric(v)
+    }
+    dta[[nm]] <- v
+  }
+  startv <- dta[[start.nm]]
+  stopv  <- dta[[stop.nm]]
   ## check if time is non-negative (ignoring NAs)
-  if (any(dta[, yvar.names[1:2]] < 0, na.rm = TRUE)) {
+  if (any(startv < 0 | stopv < 0, na.rm = TRUE)) {
     stop("time values cannot be negative")
   }
   ## drop x variables with all missing values
@@ -70,7 +92,7 @@ cleanup.counting <- function(dta, xvar.names = NULL, yvar.names, subj.names, sor
   cc <- complete.cases(dta[, cols.to.check, drop = FALSE])
   if (!all(cc)) {
     n.rem <- sum(!cc)
-    dta   <- dta[cc,, drop = FALSE]
+    dta   <- dta[cc, , drop = FALSE]
     warning(sprintf("Removing %d row(s) with missing values.", n.rem))
   }
   ## checks after NA cleaning
@@ -84,62 +106,63 @@ cleanup.counting <- function(dta, xvar.names = NULL, yvar.names, subj.names, sor
       stop("After removing missing values there are no x variables left.")
     }
   }
-  ## if sorted is requested, convert id to sequential integer
-  id <- dta[, subj.names]
-  if (sorted) {
-    id <- as.numeric(factor(id))
+  ## one-pass stable sort by subject encounter-order, then start time.
+  ## This preserves the original grouping semantics without the O(n * n_subjects)
+  ## cost of lapply(unique(id), which(id == i), ...).
+  if (isFALSE(sorted)) {
+    id  <- dta[[subj.names]]
+    ord <- order(match(id, id), dta[[start.nm]], method = "radix")
+    if (!identical(ord, seq_len(nrow(dta)))) {
+      dta <- dta[ord, , drop = FALSE]
+    }
   }
-  ## order the data by time within id for convenience
-  nms <- colnames(dta)
-  dta <- data.frame(do.call(rbind, lapply(unique(id), function(i) {
-    pt  <- which(id == i)
-    o.r <- order(dta[pt, yvar.names[1]])
-    dta[pt[o.r],, drop = FALSE]
-  })))
-  colnames(dta) <- nms
-  ## ensure start/stop are numeric (avoid factor surprises)
-  for (nm in yvar.names[1:2]) {
-    v <- dta[[nm]]
-    if (is.factor(v)) v <- as.numeric(as.character(v))
-    dta[[nm]] <- as.numeric(v)
-  }
-  ## scale time to [0,1]
-  max.time <- max(dta[[yvar.names[2]]])
+  ## transform time to [0,1] using modified logit with tau = training max.time
+  max.time <- max(dta[[stop.nm]], na.rm = TRUE)
   if (!is.finite(max.time) || max.time <= 0) {
     stop("Invalid max time in training data: max(stop) must be positive and finite.")
   }
-  dta[, yvar.names[1:2]] <- dta[, yvar.names[1:2]] / max.time
+  time.map <- list(method   = "mlogit",
+                   tau      = as.double(max.time),
+                   max.time = as.double(max.time))
+  startv <- .forward.time(dta[[start.nm]], time.map)
+  stopv  <- .forward.time(dta[[stop.nm]],  time.map)
   ## remove non-finite time values and any data points where stop<=start within epsilon tolerance
-  startv <- dta[[yvar.names[1]]]
-  stopv  <- dta[[yvar.names[2]]]
   bad <- (!is.finite(startv) | !is.finite(stopv) | (stopv <= startv + eps))
-  ## treat any NA comparisons as invalid (drop)
   bad[is.na(bad)] <- TRUE
   if (any(bad)) {
-    dta <- dta[!bad,, drop = FALSE]
+    keep <- !bad
+    dta   <- dta[keep, , drop = FALSE]
+    startv <- startv[keep]
+    stopv  <- stopv[keep]
   }
   if (nrow(dta) == 0L) {
     stop("After processing there are no valid counting-process intervals left.")
   }
+  dta[[start.nm]] <- startv
+  dta[[stop.nm]]  <- stopv
   ## store helpful attributes
-  attr(dta, "max.time")   <- max.time
-  attr(dta, "xvar.names") <- xvar.names
+  attr(dta, "max.time")              <- max.time
+  attr(dta, "time.map")              <- time.map
+  attr(dta, "xvar.names")            <- xvar.names
+  attr(dta, "sorted.by.subj.start")  <- TRUE
   dta
 }
 ## helper to clean and scale new (test) counting-process data for predict.rhf
 cleanup.counting.newdata <- function(newdata,
-                                     subj.names,
-                                     yvar.names,
                                      xvar.names,
+                                     yvar.names,
+                                     subj.names,
+                                     time.map,
                                      max.time,
+                                     sorted = FALSE,
                                      eps = 1e-6,
                                      nonfinite.action = c("stop", "drop")) {
   nonfinite.action <- match.arg(nonfinite.action)
   if (missing(newdata) || is.null(newdata)) {
     stop("Argument 'newdata' must be a non-null data.frame.")
   }
-  ## check subject variable present
   cn <- colnames(newdata)
+  ## check subject variable present
   missing.subj <- setdiff(subj.names, cn)
   if (length(missing.subj) > 0L) {
     stop("Subject variable(s) not found in 'newdata': ",
@@ -157,12 +180,24 @@ cleanup.counting.newdata <- function(newdata,
     stop("Argument 'yvar.names' must refer to variables that are either all present in 'newdata' or all absent.")
   }
   yvar.present <- all(y.in)
-  dta <- newdata
-  ## basic check on time for newdata if y present
+  start.nm <- stop.nm <- NULL
+  ## coerce start/stop once, early (if y present)
   if (yvar.present) {
-    if (any(dta[, yvar.names[1:2]] < 0, na.rm = TRUE)) {
+    start.nm <- yvar.names[1L]
+    stop.nm  <- yvar.names[2L]
+    for (nm in c(start.nm, stop.nm)) {
+      v <- newdata[[nm]]
+      if (is.factor(v)) {
+        v <- as.numeric(as.character(v))
+      } else {
+        v <- as.numeric(v)
+      }
+      newdata[[nm]] <- v
+    }
+    if (any(newdata[[start.nm]] < 0 | newdata[[stop.nm]] < 0, na.rm = TRUE)) {
       stop("time values in 'newdata' cannot be negative")
     }
+    ## retained for legacy/interface sanity checks
     if (length(max.time) != 1L || !is.finite(max.time) || max.time <= 0) {
       stop("Invalid 'max.time' from training data: must be a positive finite scalar.")
     }
@@ -172,25 +207,66 @@ cleanup.counting.newdata <- function(newdata,
   if (yvar.present) {
     cols.to.check <- c(cols.to.check, yvar.names)
   }
-  cols.to.check <- intersect(cols.to.check, colnames(dta))
-  cc <- complete.cases(dta[, cols.to.check, drop = FALSE])
+  cols.to.check <- intersect(cols.to.check, cn)
+  cc <- complete.cases(newdata[, cols.to.check, drop = FALSE])
   if (!all(cc)) {
     n.drop <- sum(!cc)
-    dta    <- dta[cc, , drop = FALSE]
     warning(sprintf(
       "Removing %d row(s) from 'newdata' due to missing values in subject, y, or x.",
       n.drop
     ))
   }
-  if (nrow(dta) == 0L) {
+  if (!any(cc)) {
     stop("After removing missing values from 'newdata' there are no observations left.")
   }
-  ## initialise outputs
+  dta <- newdata[cc, , drop = FALSE]
+  ## one-pass stable sort by subject encounter-order, then start time.
+  ## If y is absent, group by subject while preserving within-subject order.
+  if (isFALSE(sorted)) {
+    id <- dta[[subj.names]]
+    if (yvar.present) {
+      ord <- order(match(id, id), dta[[start.nm]], method = "radix")
+    } else {
+      ord <- order(match(id, id), seq_len(nrow(dta)), method = "radix")
+    }
+    if (!identical(ord, seq_len(nrow(dta)))) {
+      dta <- dta[ord, , drop = FALSE]
+    }
+  }
+  start.scaled <- stop.scaled <- NULL
+  if (yvar.present) {
+    ## transform start/stop outcomes to the internal time scale
+    start.scaled <- .forward.time(dta[[start.nm]], time.map)
+    stop.scaled  <- .forward.time(dta[[stop.nm]],  time.map)
+    ## coherence check
+    nonfinite <- (!is.finite(start.scaled) | !is.finite(stop.scaled))
+    bad <- nonfinite | (stop.scaled <= start.scaled + eps)
+    bad[is.na(bad)] <- TRUE
+    if (any(nonfinite)) {
+      msg <- sprintf("Found %d row(s) in 'newdata' with non-finite start/stop after scaling.",
+                     sum(nonfinite))
+      if (nonfinite.action == "stop") {
+        stop(msg)
+      } else {
+        warning(msg)
+      }
+    }
+    if (any(bad)) {
+      dta <- dta[!bad, , drop = FALSE]
+      start.scaled <- start.scaled[!bad]
+      stop.scaled  <- stop.scaled[!bad]
+    }
+    if (nrow(dta) == 0L) {
+      stop("After removing invalid/non-positive length intervals from 'newdata' there are no observations left.")
+    }
+  }
+  attr(dta, "sorted.by.subj.start") <- isTRUE(yvar.present)
+  ## initialise outputs only after final filtering to avoid extra copies
   subj.newdata <- dta[, subj.names]
   xvar.newdata <- dta[, xvar.names, drop = FALSE]
   yvar.newdata <- NULL
   if (yvar.present) {
-    ## extract y and coerce start/stop to numeric (avoid factor surprises)
+    ## preserve original coercion behavior for non-time y columns
     yraw <- dta[, yvar.names, drop = FALSE]
     for (nm in yvar.names[1:2]) {
       v <- yraw[[nm]]
@@ -199,32 +275,8 @@ cleanup.counting.newdata <- function(newdata,
     }
     yvar.newdata <- as.matrix(yraw)
     storage.mode(yvar.newdata) <- "double"
-    ## scale y to [0,1] using *training* max.time
-    ## (explicit arithmetic avoids any surprises from scale()/data.frame coercion)
-    yvar.newdata[, 1L] <- yvar.newdata[, 1L] / max.time
-    yvar.newdata[, 2L] <- yvar.newdata[, 2L] / max.time
-    ## cap scaled time at 1 (equivalent to capping raw time at max.time)
-    yvar.newdata[, 1:2] <- pmin(yvar.newdata[, 1:2, drop = FALSE], 1)
-    ## identify invalid intervals: non-finite time OR stop<=start (within eps)
-    bad <- (!is.finite(yvar.newdata[, 1L]) |
-            !is.finite(yvar.newdata[, 2L]) |
-            (yvar.newdata[, 2L] <= yvar.newdata[, 1L] + eps))
-    ## treat any NA comparison results as invalid
-    bad[is.na(bad)] <- TRUE
-    if (any(bad)) {
-      if (any(!is.finite(yvar.newdata[bad, 1L])) || any(!is.finite(yvar.newdata[bad, 2L]))) {
-        msg <- sprintf("Found %d row(s) in 'newdata' with non-finite start/stop after scaling.",
-                       sum(!is.finite(yvar.newdata[, 1L]) | !is.finite(yvar.newdata[, 2L])))
-        if (nonfinite.action == "stop") stop(msg) else warning(msg)
-      }
-      dta          <- dta[!bad, , drop = FALSE]
-      subj.newdata <- subj.newdata[!bad]
-      xvar.newdata <- xvar.newdata[!bad, , drop = FALSE]
-      yvar.newdata <- yvar.newdata[!bad, , drop = FALSE]
-    }
-    if (nrow(dta) == 0L) {
-      stop("After removing invalid/non-positive length intervals from 'newdata' there are no observations left.")
-    }
+    yvar.newdata[, 1L] <- start.scaled
+    yvar.newdata[, 2L] <- stop.scaled
   }
   list(
     newdata      = dta,
@@ -239,35 +291,34 @@ get.duplicated <- function(x) {
     1 * !all(xx == xx[1])
   }))
 }
-get.tdc.cov <- function(dta, subj.names, yvar.names) {
+get.tdc.cov <- function(dta, subj.names, yvar.names,
+                        presorted = isTRUE(attr(dta, "sorted.by.subj.start"))) {
   ## extract covariates
   x <- dta[, !(colnames(dta) %in% c(subj.names, yvar.names)), drop = FALSE]
   p <- ncol(x)
   if (p == 0L) {
     return(numeric(0L))
   }
-  ## for looping across the id (does not assume id is sorted)
   id <- dta[, subj.names]
-  n <- length(id)
-  ## trivial cases
+  n  <- length(id)
   if (n <= 1L) {
     out <- rep(0L, p)
     names(out) <- colnames(x)
     return(out)
   }
-  ## order rows by id so that within-id comparisons are contiguous
-  ord <- order(id)
-  id.ord <- id[ord]
-  ## adjacent rows that belong to the same subject
+  if (presorted) {
+    ord <- seq_len(n)
+    id.ord <- id
+  } else {
+    ord <- order(id, method = "radix")
+    id.ord <- id[ord]
+  }
   same <- id.ord[-1L] == id.ord[-n]
-  ## if every subject appears at most once, nothing can be time-dependent
   if (!any(same, na.rm = TRUE)) {
     out <- rep(0L, p)
     names(out) <- colnames(x)
     return(out)
   }
-  ## A covariate is time-dependent if it changes at least once within any subject.
-  ## Detect this by looking for any within-id change between adjacent rows after ordering by id.
   out <- vapply(
     x,
     function(v) {
@@ -279,63 +330,56 @@ get.tdc.cov <- function(dta, subj.names, yvar.names) {
   )
   out
 }
-get.tdc.subj.time <- function(dta, subj.names, yvar.names) {
+get.tdc.subj.time <- function(dta, subj.names, yvar.names,
+                              presorted = isTRUE(attr(dta, "sorted.by.subj.start"))) {
   ## extract covariates
   x <- dta[, !(colnames(dta) %in% c(subj.names, yvar.names)), drop = FALSE]
   p <- ncol(x)
-  ## if there are no covariates, there can be no TDC
+  ## preserve original behavior in trivial cases
   if (p == 0L) {
     return(rep(0L, nrow(dta)))
   }
-  ## for looping across the id (id should *not* be sorted)
   id <- dta[, subj.names]
-  n <- length(id)
-  ## trivial cases
+  n  <- length(id)
   if (n <= 1L) {
     return(rep(0L, nrow(dta)))
   }
-  ## order rows by id so that within-id comparisons are contiguous
-  ord <- order(id)
-  id.ord <- id[ord]
-  ## adjacent rows that belong to the same subject
+  if (presorted) {
+    ord <- seq_len(n)
+    id.ord <- id
+  } else {
+    ord <- order(id, method = "radix")
+    id.ord <- id[ord]
+  }
   same <- id.ord[-1L] == id.ord[-n]
-  ## if every subject appears at most once, there can be no time-dependent covariates
   if (!any(same, na.rm = TRUE)) {
     return(rep(0L, nrow(dta)))
   }
-  ## track (i) which covariates are time-dependent (any within-id change),
-  ## and (ii) which subjects have any time-dependent covariate.
   cov.tdc <- integer(p)
   names(cov.tdc) <- colnames(x)
-  ## per-adjacent-pair flag: TRUE if ANY covariate changes between row k and k+1
-  ## within the same subject (after ordering by id)
   pair.chg <- logical(n - 1L)
   for (j in seq_len(p)) {
     v <- x[[j]][ord]
     chg <- (v[-1L] != v[-n]) & same
-    ## covariate is TDC if it changes anywhere within any subject
     cov.tdc[j] <- as.integer(any(chg, na.rm = TRUE))
-    ## subject-level TDC: mark boundaries where *any* covariate changes
-    ## treat NA comparisons as "no evidence of change"
     pair.chg <- pair.chg | (!is.na(chg) & chg)
   }
-  ## first check if there are time dependent covariates (legacy behavior)
   if (sum(cov.tdc) == 0) {
     return(rep(0L, nrow(dta)))
   }
-  ## Summarize pair.chg to the subject level.
-  ## Each pair index k corresponds to the boundary between ordered rows k and k+1.
-  ## For a subject with rows s..e, the internal boundaries are k = s..(e-1).
   pc <- as.integer(pair.chg)
-  cs <- c(0L, cumsum(pc))  ## length n
+  cs <- c(0L, cumsum(pc))
   rr <- rle(id.ord)
   ends <- cumsum(rr$lengths)
   starts <- ends - rr$lengths + 1L
   subj.has.chg <- (cs[ends] - cs[starts]) > 0L
-  ## return 1 if subject i has any tdc covariate (in original encounter order)
-  id.unq <- unique(id)
-  by_id <- setNames(as.integer(subj.has.chg), as.character(rr$values))
-  out <- unname(by_id[as.character(id.unq)])
+  if (presorted) {
+    out <- as.integer(subj.has.chg)
+  } else {
+    id.unq <- unique(id)
+    by_id <- setNames(as.integer(subj.has.chg), as.character(rr$values))
+    out <- unname(by_id[as.character(id.unq)])
+  }
   out
 }
 #########################################################################################
@@ -343,7 +387,7 @@ get.tdc.subj.time <- function(dta, subj.names, yvar.names) {
 ## process survival information, set time.interest
 ##
 #########################################################################################
-timegrid.min_events <- function(data,
+timegrid.min.events <- function(data,
                                 stop.col = "stop",
                                 event.col = "event",
                                 ntime = 50L,
@@ -510,7 +554,7 @@ get.grow.event.info <- function(yvar, fmly, need.deaths = TRUE, ntime, min.event
       }
       if (!is.null(ntime) && !((length(ntime) == 1) && ntime == 0)) {
         if (length(ntime) == 1) {
-          time.interest <- timegrid.min_events(data.frame(stop=time, event=cens),
+          time.interest <- timegrid.min.events(data.frame(stop=time, event=cens),
                                                ntime = ntime,
                                                min.events.per.gap = min.events.per.gap)
         }
@@ -549,14 +593,10 @@ get.grow.event.info <- function(yvar, fmly, need.deaths = TRUE, ntime, min.event
 ## - only coherent for single or time static trees
 ##
 ####################################################################
-hazard.to.chf <- function(o, max.time=1) {
+hazard.to.chf <- function(o, max.time = 1) {
   tme.delta <- diff(c(0, o$time.interest))
-  if (!is.null(o$hazard.oob)) {
-    t(apply(max.time * o$hazard.oob, 1, function(hz) {cumsum(hz * tme.delta)}))
-  }
-  else {
-    t(apply(max.time * o$hazard, 1, function(hz) {cumsum(hz * tme.delta)}))
-  }
+  hz <- if (!is.null(o$hazard.oob)) o$hazard.oob else o$hazard
+  t(apply(hz, 1, function(h) cumsum(h * tme.delta)))
 }
 #########################################################################################
 ##
@@ -624,136 +664,198 @@ convert.standard.counting <- function(formula, data,
   ## required columns
   req  <- c(subj.nm, start.nm, stop.nm, event.nm)
   miss <- setdiff(req, names(data))
-  if (length(miss)) stop("Missing required columns in data: ", paste(miss, collapse = ", "))
+  if (length(miss)) {
+    stop("Missing required columns in data: ", paste(miss, collapse = ", "))
+  }
   id         <- data[[subj.nm]]
   start.time <- data[[start.nm]]
   stop.time  <- data[[stop.nm]]
   event.val  <- data[[event.nm]]
-  if (any(!is.finite(start.time) | !is.finite(stop.time)))
+  if (any(!is.finite(start.time) | !is.finite(stop.time))) {
     stop("Non-finite start/stop values found.")
-  if (any(stop.time < start.time - eps, na.rm = TRUE))
+  }
+  if (any(stop.time < start.time - eps, na.rm = TRUE)) {
     stop("Found rows with stop < start beyond tolerance.")
+  }
   ## Optional: rescale start/stop times (and landmark.time) using attr(data, 'max.time')
   ## This is mainly useful if start/stop were stored on [0,1] and you want
   ## to work in original units.
   if (isTRUE(rescale.from.attr)) {
-    mt <- attr(data, "max.time")
-    if (!is.null(mt) && is.finite(mt) && mt > 0) {
-      start.time <- start.time * mt
-      stop.time  <- stop.time  * mt
-      if (!is.null(landmark.time)) landmark.time <- landmark.time * mt
+    tm <- attr(data, "time.map")
+    if (!is.null(tm)) {
+      start.time <- .inverse.time(start.time, tm)
+      stop.time  <- .inverse.time(stop.time,  tm)
+      if (!is.null(landmark.time)) {
+        landmark.time <- .inverse.time(landmark.time, tm)
+      }
+    } else {
+      mt <- attr(data, "max.time")
+      if (!is.null(mt) && is.finite(mt) && mt > 0) {
+        start.time <- start.time * mt
+        stop.time  <- stop.time  * mt
+        if (!is.null(landmark.time)) {
+          landmark.time <- landmark.time * mt
+        }
+      }
     }
   }
-  uid    <- unique(id)                       # preserve encounter order
-  x.cols <- setdiff(names(data), req)        # candidate covariates
-  ## ---- per-id snapshot/time/event ----
-  get_one <- function(ii) {
-    rows <- which(id == ii)
-    if (!length(rows)) return(NULL)
-    if (!sorted) {
-      rows <- rows[order(start.time[rows], stop.time[rows])]
+  ## Original code silently drops NA ids because which(id == NA) returns integer(0).
+  ## Preserve that behavior, but do it up front to avoid carrying empty groups around.
+  valid.id <- !is.na(id)
+  if (!any(valid.id)) {
+    return(data.frame())
+  }
+  if (!all(valid.id)) {
+    row.map    <- which(valid.id)
+    id         <- id[valid.id]
+    start.time <- start.time[valid.id]
+    stop.time  <- stop.time[valid.id]
+    event.val  <- event.val[valid.id]
+  } else {
+    row.map <- seq_along(id)
+  }
+  n <- length(id)
+  x.cols <- setdiff(names(data), req)
+  ## One-pass grouping strategy:
+  ## - preserve subject encounter order via match(id, id)
+  ## - if sorted=FALSE, sort within subject by (start, stop)
+  ## - if sorted=TRUE, preserve original within-subject row order
+  presorted <- isTRUE(attr(data, "sorted.by.subj.start"))
+  grp <- match(id, id)
+  if (sorted && presorted) {
+    ord <- seq_len(n)
+  } else if (sorted) {
+    ord <- order(grp, seq_len(n), method = "radix")
+  } else {
+    ord <- order(grp, start.time, stop.time, method = "radix")
+  }
+  id.ord    <- id[ord]
+  start.ord <- start.time[ord]
+  stop.ord  <- stop.time[ord]
+  event.ord <- event.val[ord]
+  row.ord   <- row.map[ord]
+  rr <- rle(id.ord)
+  uid.ord <- rr$values
+  ends   <- cumsum(rr$lengths)
+  starts <- ends - rr$lengths + 1L
+  n.id   <- length(uid.ord)
+  keep.vec <- rep(TRUE, n.id)
+  time.vec <- numeric(n.id)
+  event.vec <- integer(n.id)
+  base.row <- integer(n.id)
+  if (!is.null(landmark.time)) {
+    t0 <- as.numeric(landmark.time)
+    if (!is.finite(t0)) {
+      stop("landmark.time must be finite.")
     }
+    t.eff <- if (isTRUE(landmark.use.tminus)) (t0 - eps) else t0
+    if (isTRUE(keep.landmark.cols)) {
+      landmark.time.vec <- rep(NA_real_, n.id)
+      t.end.vec         <- rep(NA_real_, n.id)
+      t.end.event.vec   <- rep(NA_real_, n.id)
+    }
+  } else {
+    t0 <- NULL
+  }
+  ## Scan each subject exactly once using group boundaries.
+  for (ii in seq_len(n.id)) {
+    s <- starts[ii]
+    e <- ends[ii]
+    start.slice <- start.ord[s:e]
+    stop.slice  <- stop.ord[s:e]
     ## end of follow-up for this id
-    t_end <- max(stop.time[rows], na.rm = TRUE)
+    t.end <- max(stop.slice, na.rm = TRUE)
     ## last row at end time (used for event indicator)
-    last_rows <- rows[stop.time[rows] >= t_end - eps]
-    last_row  <- tail(last_rows, 1L)
-    event_end <- as.integer(event.val[last_row] > 0)
-    ## choose baseline snapshot row
-    base_row <- rows[1L]
-    time_i  <- t_end
-    event_i <- event_end
-    ## landmark mode
-    if (!is.null(landmark.time)) {
-      t0 <- as.numeric(landmark.time)
-      if (!is.finite(t0)) stop("landmark.time must be finite.")
+    last.local <- tail(which(stop.slice >= t.end - eps), 1L)
+    last.idx   <- s + last.local - 1L
+    event.end  <- as.integer(event.ord[last.idx] > 0)
+    ## default: baseline snapshot row
+    base.local <- 1L
+    time.i     <- t.end
+    event.i    <- event.end
+    if (!is.null(t0)) {
       ## exclude those not at risk at landmark
-      if (t_end <= t0 + eps) return(NULL)
-      ## pick t0^- to avoid boundary ambiguity
-      t_eff <- if (isTRUE(landmark.use.tminus)) (t0 - eps) else t0
+      if (t.end <= t0 + eps) {
+        keep.vec[ii] <- FALSE
+        next
+      }
       ## find interval containing t_eff: start <= t_eff < stop
-      cand <- rows[start.time[rows] <= t_eff & stop.time[rows] > t_eff]
+      cand <- which(start.slice <= t.eff & stop.slice > t.eff)
       if (length(cand)) {
         ## if multiple, take the one with largest start
-        base_row <- cand[which.max(start.time[cand])]
+        base.local <- cand[which.max(start.slice[cand])]
       } else {
         ## fallback: last row with stop <= t0 (if exists), else first row
-        cand2 <- rows[stop.time[rows] <= t0 + eps]
+        cand2 <- which(stop.slice <= t0 + eps)
         if (length(cand2)) {
-          base_row <- cand2[which.max(stop.time[cand2])]
+          base.local <- cand2[which.max(stop.slice[cand2])]
         } else {
-          base_row <- rows[1L]
+          base.local <- 1L
         }
       }
       ## define outcome relative to landmark (standard landmarking)
-      time_i  <- t_end - t0
-      event_i <- as.integer(event_end == 1L && t_end > t0 + eps)
+      time.i  <- t.end - t0
+      event.i <- as.integer(event.end == 1L && t.end > t0 + eps)
       if (isTRUE(keep.landmark.cols)) {
-        ## store some additional information
-        lm_cols <- list(landmark_time = t0,
-                        t_end = t_end,
-                        t_end_event = if (event_end == 1L) t_end else NA_real_)
-      } else {
-        lm_cols <- NULL
+        landmark.time.vec[ii] <- t0
+        t.end.vec[ii]         <- t.end
+        t.end.event.vec[ii]   <- if (isTRUE(event.end == 1L)) t.end else NA_real_
       }
-    } else {
-      lm_cols <- NULL
     }
-    base_cov <- if (length(x.cols)) data[base_row, x.cols, drop = FALSE] else NULL
-    out <- list(time = time_i, event = event_i, cov = base_cov, row_index = base_row)
-    if (!is.null(lm_cols)) out <- c(out, lm_cols)
-    out
+    base.row[ii]  <- row.ord[s + base.local - 1L]
+    time.vec[ii]  <- time.i
+    event.vec[ii] <- event.i
   }
-  pieces <- lapply(uid, get_one)
-  keep   <- vapply(pieces, Negate(is.null), logical(1))
-  pieces <- pieces[keep]
-  uid    <- uid[keep]
-  if (!length(pieces)) {
-    ## return empty frame with correct columns
-    out <- data.frame()
-    return(out)
+  uid.keep   <- uid.ord[keep.vec]
+  base.row   <- base.row[keep.vec]
+  time.vec   <- time.vec[keep.vec]
+  event.vec  <- event.vec[keep.vec]
+  if (!length(time.vec)) {
+    return(data.frame())
   }
-  ## assemble survival part
-  time_vec  <- vapply(pieces, `[[`, numeric(1),  "time")
-  event_vec <- vapply(pieces, `[[`, integer(1),  "event")
+  if (!is.null(t0) && isTRUE(keep.landmark.cols)) {
+    landmark.time.vec <- landmark.time.vec[keep.vec]
+    t.end.vec         <- t.end.vec[keep.vec]
+    t.end.event.vec   <- t.end.event.vec[keep.vec]
+  }
   if (isTRUE(scale)) {
-    mx <- max(time_vec, na.rm = TRUE)
-    if (mx > 0) time_vec <- time_vec / mx
+    mx <- max(time.vec, na.rm = TRUE)
+    if (is.finite(mx) && mx > 0) {
+      time.vec <- time.vec / mx
+    }
   }
   out <- NULL
   if (return.type == "survival") {
-    out <- data.frame(time = time_vec, event = event_vec, check.names = FALSE)
+    out <- data.frame(time = time.vec, event = event.vec, check.names = FALSE)
   }
-  ## bind covariates
+  ## bind covariates with one direct subset instead of per-id pieces + rbind
   if (length(x.cols)) {
-    cov_rows <- do.call(rbind, lapply(pieces, `[[`, "cov"))
-    rownames(cov_rows) <- NULL
+    cov.rows <- data[base.row, x.cols, drop = FALSE]
+    rownames(cov.rows) <- NULL
     if (is.null(out)) {
-      out <- data.frame(cov_rows, check.names = FALSE)
+      out <- data.frame(cov.rows, check.names = FALSE)
     } else {
-      out <- data.frame(out, cov_rows, check.names = FALSE)
+      out <- data.frame(out, cov.rows, check.names = FALSE)
     }
   } else {
-    if (is.null(out)) out <- data.frame(check.names = FALSE)
+    if (is.null(out)) {
+      out <- data.frame(check.names = FALSE)
+    }
   }
   ## optional helper columns
   if (isTRUE(keep.row_index)) {
-    row_index <- vapply(pieces, `[[`, integer(1), "row_index")
-    out <- data.frame(row_index = row_index, out, check.names = FALSE)
+    out <- data.frame(row_index = base.row, out, check.names = FALSE)
   }
-  if (!is.null(landmark.time) && isTRUE(keep.landmark.cols)) {
-    landmark_time <- vapply(pieces, function(p) if (!is.null(p$landmark_time)) p$landmark_time else NA_real_, numeric(1))
-    t_end         <- vapply(pieces, function(p) if (!is.null(p$t_end)) p$t_end else NA_real_, numeric(1))
-    t_end_event   <- vapply(pieces, function(p) if (!is.null(p$t_end_event)) p$t_end_event else NA_real_, numeric(1))
-    out <- data.frame(landmark_time = landmark_time,
-                      t_end = t_end,
-                      t_end_event = t_end_event,
+  if (!is.null(t0) && isTRUE(keep.landmark.cols)) {
+    out <- data.frame(landmark_time = landmark.time.vec,
+                      t_end = t.end.vec,
+                      t_end_event = t.end.event.vec,
                       out,
                       check.names = FALSE)
   }
   if (isTRUE(keep.id)) {
-    id_df <- setNames(data.frame(uid, check.names = FALSE), subj.nm)
-    out   <- data.frame(id_df, out, check.names = FALSE)
+    id.df <- setNames(data.frame(uid.keep, check.names = FALSE), subj.nm)
+    out   <- data.frame(id.df, out, check.names = FALSE)
   }
   out
 }

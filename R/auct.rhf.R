@@ -3,7 +3,7 @@
 ## main wrapper function
 ##
 ##########################################################################
-rhf.auct <- function(object,
+auct.rhf <- function(object,
                      marker = c("cumhaz",  "hazard", "chf", "haz"),
                      method = c("cumulative", "incident"),
                      tau = NULL,
@@ -20,7 +20,6 @@ rhf.auct <- function(object,
                      bootstrap.rep = 0L,
                      bootstrap.refit = FALSE,
                      bootstrap.conf = 0.95,
-                     bootstrap.trace = TRUE,
                      bootstrap.seed = NULL,
                      verbose = TRUE) {
   marker <- match.arg(marker)
@@ -101,9 +100,7 @@ rhf.auct <- function(object,
   boot <- NULL
   if (isTRUE(bootstrap.rep > 0L)) {
     if (!is.null(bootstrap.seed)) {
-      old.seed <- .Random.seed
-      on.exit({ if (exists("old.seed")) .Random.seed <<- old.seed }, add = TRUE)
-      set.seed(bootstrap.seed)
+      set.seed(as.integer(bootstrap.seed)[1L])
     }
     B <- as.integer(bootstrap.rep)
     base.times <- A$time
@@ -138,11 +135,10 @@ rhf.auct <- function(object,
         iauc.std.v <- rep(NA_real_, B)
         fml <- as.formula("Surv(id, start, stop, event) ~ .")
         uid <- unique(train.df$id)
-        if (bootstrap.trace && B > 0L) {
+        if (isTRUE(verbose) && B > 0L) {
           t.start <- proc.time()[3]
           step    <- max(1L, floor(B / 10L))
-          cat("rhf.auct bootstrap (refit): starting", B, "replicates...\n")
-          flush.console()
+          message("auct.rhf bootstrap (refit): starting ", B, " replicates...")
         }
         for (bb in seq_len(B)) {
           samp.ids <- sample(uid, length(uid), replace = TRUE)
@@ -153,14 +149,14 @@ rhf.auct <- function(object,
           ans.b <- try({
             if (is.predict.obj) {
               pr <- predict.rhf(ofit, eval.df)
-              rhf.auct(pr, marker = marker, method = method, tau = tau,
+              auct.rhf(pr, marker = marker, method = method, tau = tau,
                        riskset = riskset, min.controls = min.controls,
                        nfrac.controls = nfrac.controls, min.cases = min.cases,
                        g.floor = g.floor, g.floor.q = g.floor.q, power = power,
                        ydata = eval.df, winsor.q = winsor.q, eps = eps,
                        bootstrap.rep = 0L)
             } else {
-              rhf.auct(ofit, marker = marker, method = method, tau = tau,
+              auct.rhf(ofit, marker = marker, method = method, tau = tau,
                        riskset = riskset, min.controls = min.controls,
                        nfrac.controls = nfrac.controls, min.cases = min.cases,
                        g.floor = g.floor, g.floor.q = g.floor.q, power = power,
@@ -173,15 +169,14 @@ rhf.auct <- function(object,
           auc.mat[bb, ] <- aucb
           iauc.uno.v[bb] <- ans.b$iAUC.uno
           iauc.std.v[bb] <- ans.b$iAUC.std
-          if (bootstrap.trace && B > 0L) {
+          if (isTRUE(verbose) && B > 0L) {
             step <- max(1L, floor(B / 10L))
             if (bb == 1L || bb %% step == 0L || bb == B) {
               t.now   <- proc.time()[3]
               elapsed <- t.now - t.start
               rate    <- elapsed / bb
               remain  <- max(0, rate * (B - bb))
-              if (verbose) cat(sprintf("  [rhf.auct] refit bootstrap %d/%d  elapsed=%.1fs  approx.remaining=%.1fs\n", bb, B, elapsed, remain))
-              flush.console()
+              message(sprintf("  [auct.rhf] refit bootstrap %d/%d  elapsed=%.1fs  approx.remaining=%.1fs", bb, B, elapsed, remain))
             }
           }
         }
@@ -236,11 +231,10 @@ rhf.auct <- function(object,
       auc.mat    <- matrix(NA_real_, nrow = B, ncol = length(k.list))
       iauc.uno.v <- rep(NA_real_, B)
       iauc.std.v <- rep(NA_real_, B)
-      if (bootstrap.trace && B > 0L) {
+      if (isTRUE(verbose) && B > 0L) {
         t.start <- proc.time()[3]
         step    <- max(1L, floor(B / 10L))
-        cat("rhf.auct bootstrap (plug-in): starting", B, "replicates...\n")
-        flush.console()
+        message("auct.rhf bootstrap (plug-in): starting ", B, " replicates...")
       }
       for (bb in seq_len(B)) {
         w <- tabulate(sample.int(Nsubj, Nsubj, replace = TRUE), nbins = Nsubj)
@@ -298,15 +292,14 @@ rhf.auct <- function(object,
         } else {
           iauc.std.v[bb] <- NA_real_
         }
-        if (bootstrap.trace && B > 0L) {
+        if (isTRUE(verbose) && B > 0L) {
           step <- max(1L, floor(B / 10L))
           if (bb == 1L || bb %% step == 0L || bb == B) {
             t.now   <- proc.time()[3]
             elapsed <- t.now - t.start
             rate    <- elapsed / bb
             remain  <- max(0, rate * (B - bb))
-            if (verbose) cat(sprintf("  [rhf.auct] plug-in bootstrap %d/%d  elapsed=%.1fs  approx.remaining=%.1fs\n", bb, B, elapsed, remain))
-            flush.console()
+            message(sprintf("  [auct.rhf] plug-in bootstrap %d/%d  elapsed=%.1fs  approx.remaining=%.1fs", bb, B, elapsed, remain))
           }
         }
       }
@@ -349,8 +342,9 @@ rhf.auct <- function(object,
     winsor.q     = winsor.q,
     times        = times,
     diag.riskset = diag.riskset
-  ), class = "rhf.auct")
+  ), class = "auct.rhf")
 }
+auct <- auct.rhf
 ##########################################################################
 ##
 ## Model-agnostic core: AUC(t) + iAUC for counting-process data
@@ -641,14 +635,14 @@ rhf.auct <- function(object,
       k.list     = k.list,
       by.k       = by.k
     )
-  ), class = "rhf.auct")
+  ), class = "auct.rhf")
 }
 ##########################################################################
 ##
 ## Plot method
 ##
 ##########################################################################
-plot.rhf.auct <- function(x,
+plot.auct.rhf <- function(x,
                           bass = 10,
                           xlab = "Time",
                           ylab = NULL,
@@ -699,13 +693,19 @@ plot.rhf.auct <- function(x,
 ## Print method (right-justified; aligned colon incl. quantiles) 
 ##
 ##########################################################################
-print.rhf.auct <- function(x, digits = 4, max.rows = 8, ...) {
-  stopifnot(inherits(x, "rhf.auct"))
+print.auct.rhf <- function(x, digits = 4, max.rows = 8, ...) {
+  stopifnot(inherits(x, "auct.rhf"))
   A    <- x$AUC.by.time
   K    <- nrow(A)
   K.ok <- sum(is.finite(A$AUC))
   tr   <- range(x$times, na.rm = TRUE)
-  fnum   <- function(v) formatC(v, digits = digits, format = "f")
+  fnum <- function(v) {
+    if (is.numeric(v) && length(v) == 1L && is.finite(v)) {
+      formatC(v, digits = digits, format = "f")
+    } else {
+      "NA"
+    }
+  }
   method <- if (!is.null(x$method)) x$method else x$definition
   riskln <- if (identical(method, "cumulative")) "ignored" else x$riskset
   main.labels <- c(
@@ -734,42 +734,48 @@ print.rhf.auct <- function(x, digits = 4, max.rows = 8, ...) {
   q.label <- "AUC(t) quantiles (10%, 50%, 90%)"
   all.labels <- if (K.ok > 0) c(main.labels, q.label) else main.labels
   w <- max(nchar(all.labels), 0L)
-  cat("RHF time-varying AUC\n")
+  out <- "RHF time-varying AUC"
   for (i in seq_along(main.labels)) {
-    cat(sprintf("  %*s : %s\n", w, main.labels[i], main.values[i]))
+    out <- c(out, sprintf("  %*s : %s", w, main.labels[i], main.values[i]))
   }
   if (K.ok > 0) {
     yy <- A$AUC[is.finite(A$AUC)]
     qs <- stats::quantile(yy, probs = c(0.1, 0.5, 0.9), na.rm = TRUE, names = FALSE)
-    cat(sprintf("  %*s : %s\n",
-                w, q.label, paste(formatC(qs, digits = digits, format = "f"), collapse = ", ")))
+    out <- c(out,
+             sprintf("  %*s : %s",
+                     w, q.label, paste(formatC(qs, digits = digits, format = "f"), collapse = ", ")))
   }
   ## optional diagnostic summary
   if (!is.null(x$diag.riskset)) {
     dr <- x$diag.riskset
     if (is.list(dr) && length(dr$times)) {
-      msg <- sprintf("  Risk-set diagnostic: subject vs record differ at %d/%d times (%.2f), median |Delta-ctrl| = %d",
-                     sum(dr$n.diff > 0), length(dr$times),
-                     if (is.finite(dr$prop.times.different)) dr$prop.times.different else NA_real_,
-                     stats::median(dr$n.diff, na.rm = TRUE))
-      cat(msg, "\n", sep = "")
+      out <- c(
+        out,
+        sprintf(
+          "  Risk-set diagnostic: subject vs record differ at %d/%d times (%.2f), median |Delta-ctrl| = %d",
+          sum(dr$n.diff > 0), length(dr$times),
+          if (is.finite(dr$prop.times.different)) dr$prop.times.different else NA_real_,
+          stats::median(dr$n.diff, na.rm = TRUE)
+        )
+      )
     }
   }
+  message(paste(out, collapse = "\n"))
   ## optional small table preview: finite-AUC rows only (safe printing)
   if (K.ok > 0 && max.rows > 0) {
     cols <- intersect(c("time","AUC","n.cases","n.ctrl","G","W"), colnames(A))
     A.show <- A[is.finite(A$AUC), cols, drop = FALSE]
     A.show <- head(A.show, max.rows)
-    cat("\nAUC(t) by time (head):\n")
+    message("\nAUC(t) by time (head):")
     if (nrow(A.show) > 0) {
       print.data.frame(
         as.data.frame(lapply(A.show, function(col)
           if (is.numeric(col)) signif(col, digits) else col)),
         row.names = FALSE
       )
-      cat(" ..... \n")
+      message(" ..... ")
     } else {
-      cat("  (no finite AUC rows to display)\n")
+      message("  (no finite AUC rows to display)")
     }
   }
   ## optional bootstrap information
@@ -778,7 +784,7 @@ print.rhf.auct <- function(x, digits = 4, max.rows = 8, ...) {
     se.txt <- paste0("iAUC.uno.se = ", fnum(x$boot$iAUC.uno.se),
                      ", iAUC.std.se = ", fnum(x$boot$iAUC.std.se),
                      " (B = ", as.integer(x$boot$rep), ")")
-    cat(sprintf("  %*s : %s\n", w, paste0("Bootstrap (", mode.txt, ")"), se.txt))
+    message(sprintf("  %*s : %s", w, paste0("Bootstrap (", mode.txt, ")"), se.txt))
   }
   invisible(x)
 }
@@ -826,7 +832,7 @@ print.rhf.auct <- function(x, digits = 4, max.rows = 8, ...) {
     o.tmp$hazard.oob <- Z
   }
   class(o.tmp) <- c("rhf", "grow")
-  rhf.auct(object = o.tmp, marker = marker, method = method, tau = max(times),
+  auct.rhf(object = o.tmp, marker = marker, method = method, tau = max(times),
            riskset = riskset, min.controls = min.controls, nfrac.controls = nfrac.controls,
            min.cases = min.cases, g.floor = g.floor, g.floor.q = g.floor.q,
            power = power, ydata = YY, winsor.q = winsor.q, eps = eps,
