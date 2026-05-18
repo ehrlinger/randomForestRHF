@@ -327,6 +327,123 @@
   }
   invisible(TRUE)
 }
+########################################################################
+## bar-matrix plot legend
+########################################################################
+.rhf_draw_barmatrix_legend <- function(height.breaks,
+                                       height.range,
+                                       height.title,
+                                       bar.max.height,
+                                       alpha,
+                                       color_by,
+                                       color.range = NULL,
+                                       color.title = NULL,
+                                       bar_color = "steelblue4",
+                                       value_colors = c("grey85", "steelblue4"),
+                                       sign_colors = c("firebrick3", "grey90", "steelblue4"),
+                                       cex.text = 0.85,
+                                       cex.title = 0.9) {
+  graphics::plot.new()
+  graphics::plot.window(xlim = c(0, 0.70), ylim = c(0, 1), xaxs = "i", yaxs = "i")
+  has.color <- color_by %in% c("value", "sign") &&
+    length(color.range) == 2L && all(is.finite(color.range))
+  height.breaks <- as.numeric(height.breaks)
+  height.breaks <- sort(unique(height.breaks[is.finite(height.breaks)]), decreasing = TRUE)
+  x.title <- 0.06
+  x.bar <- 0.22
+  x.height.lab <- 0.40
+  if (length(height.breaks)) {
+    height.y.top <- if (has.color) 0.82 else 0.76
+    height.y.bottom <- if (has.color) 0.62 else 0.28
+    height.y.seq <- if (length(height.breaks) == 1L) {
+      mean(c(height.y.top, height.y.bottom))
+    } else {
+      seq(height.y.top, height.y.bottom, length.out = length(height.breaks))
+    }
+    legend.bar.max <- if (has.color) 0.075 else 0.10
+    graphics::text(x.title,
+                   min(0.96, height.y.top + legend.bar.max + 0.06),
+                   labels = height.title,
+                   adj = c(0, 0.5),
+                   font = 2,
+                   cex = cex.title)
+    h.val <- .rhf_rescale_from_range(height.breaks,
+                                     from = height.range,
+                                     to = c(0, legend.bar.max))
+    graphics::segments(x.bar - 0.065,
+                       height.y.seq,
+                       x.bar + 0.065,
+                       height.y.seq,
+                       col = "grey60")
+    graphics::rect(x.bar - 0.040,
+                   height.y.seq,
+                   x.bar + 0.040,
+                   height.y.seq + h.val,
+                   col = grDevices::adjustcolor(bar_color, alpha.f = alpha),
+                   border = NA)
+    graphics::text(rep(x.height.lab, length(height.breaks)),
+                   height.y.seq,
+                   labels = .rhf_format_legend_values(height.breaks),
+                   adj = c(0, 0.5),
+                   cex = cex.text)
+  }
+  else {
+    graphics::text(x.title,
+                   0.72,
+                   labels = paste0(height.title, "\n(no finite positive values)"),
+                   adj = c(0, 0.5),
+                   font = 2,
+                   cex = cex.title)
+  }
+  if (has.color) {
+    color.y.top <- 0.48
+    color.y.bottom <- 0.12
+    n.grad <- 80L
+    yy <- seq(color.y.bottom, color.y.top, length.out = n.grad + 1L)
+    vals <- seq(color.range[1L], color.range[2L], length.out = n.grad)
+    cols <- if (color_by == "sign") {
+      .rhf_map_palette(vals, sign_colors, symmetric = TRUE)
+    }
+    else {
+      .rhf_map_palette(vals, value_colors, symmetric = FALSE)
+    }
+    cols <- grDevices::adjustcolor(cols, alpha.f = alpha)
+    graphics::text(x.title,
+                   color.y.top + 0.08,
+                   labels = color.title,
+                   adj = c(0, 0.5),
+                   font = 2,
+                   cex = cex.title)
+    graphics::rect(x.title,
+                   yy[-length(yy)],
+                   x.title + 0.10,
+                   yy[-1L],
+                   col = cols,
+                   border = cols)
+    br <- .rhf_pretty_breaks(color.range,
+                             n = 5L,
+                             positive.only = FALSE,
+                             symmetric = color_by == "sign")
+    br <- br[br >= color.range[1L] & br <= color.range[2L]]
+    br <- unique(br[is.finite(br)])
+    if (length(br)) {
+      by <- .rhf_rescale_from_range(br,
+                                    from = color.range,
+                                    to = c(color.y.bottom, color.y.top))
+      graphics::segments(x.title + 0.10,
+                         by,
+                         x.title + 0.13,
+                         by,
+                         col = "grey45")
+      graphics::text(rep(x.title + 0.16, length(br)),
+                     by,
+                     labels = .rhf_format_legend_values(br),
+                     adj = c(0, 0.5),
+                     cex = cex.text)
+    }
+  }
+  invisible(TRUE)
+}
 .rhf_map_palette <- function(x, colors, symmetric = FALSE) {
   x <- as.numeric(x)
   pal <- grDevices::colorRampPalette(colors)(64L)

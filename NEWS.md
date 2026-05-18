@@ -1,4 +1,4 @@
-# randomForestRHF 1.0.1
+# randomForestRHF 1.0.2
 
 * Maintenance update with bug fixes and CRAN-related cleanups.
 * Added explicit POSIX socket/select header includes in `src/server.h` for improved musl/Alpine compatibility.

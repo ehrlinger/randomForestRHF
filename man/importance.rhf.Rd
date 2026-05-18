@@ -7,6 +7,8 @@
 \alias{plot.importance.rhf}
 \alias{dotmatrix.importance.rhf}
 \alias{dotmatrix.importance}
+\alias{barplot.importance.rhf}
+\alias{barplot.importance}
 \title{Time-localized VarPro importance for random hazard forests}
 
 \description{
@@ -87,8 +89,48 @@ dotmatrix.importance.rhf(x,
  legend.width = 0.7,
  ...)
 
+barplot.importance.rhf(x,
+ vars = NULL,
+ top_n_union = 15L,
+ variable.labels = NULL,
+ time.labels = NULL,
+ sort_by = c("q90", "sum", "max", "mean", "median", "alphabetical", "cluster", "none"),
+ sort_abs = TRUE,
+ transform = c("none", "log10"),
+ color_by = c("value", "sign", "single", "none"),
+ point_color = NULL,
+ bar_color = "steelblue4",
+ value_colors = c("grey85", "steelblue4"),
+ sign_colors = c("firebrick3", "grey90", "steelblue4"),
+ cex.range = NULL,
+ bar.width = 0.65,
+ bar.max.height = NULL,
+ size.cap = 0.99,
+ color.cap = 0.99,
+ alpha = 0.9,
+ show.grid = TRUE,
+ grid.col = "grey92",
+ zero.line = TRUE,
+ zero.col = "grey65",
+ legend = TRUE,
+ display.note = TRUE,
+ xlab = "",
+ ylab = "",
+ main = "RHF time-localized VarPro importance",
+ axis.cex = 0.7,
+ var.cex = 0.7,
+ time.label.srt = 45,
+ save_plot = FALSE,
+ out.file = "rhf_time_varpro_barplot.pdf",
+ width = 11,
+ height = NULL,
+ mar = NULL,
+ legend.width = 0.7,
+ border = NA,
+ ...)
+
 \method{plot}{importance.rhf}(x,
- type = c("dotmatrix", "lines"),
+ type = c("dotmatrix", "barplot", "lines"),
  vars = NULL,
  top = 10L,
  rank.by = c("q90", "median", "mean", "max"),
@@ -156,10 +198,11 @@ dotmatrix.importance.rhf(x,
 
   \item{type, vars, top_n_union}{Arguments controlling which
   variables are displayed and which plot is produced. \code{type = "dotmatrix"}
-  gives the time-by-variable dot-matrix display; \code{type = "lines"} gives a
-  line, step, or smoothed view for selected variables. When \code{vars} is
-  omitted, the line plot chooses \code{top} variables using \code{rank.by},
-  while the dot-matrix plot uses the union of the top
+  gives the time-by-variable dot-matrix display, \code{type = "barplot"} gives
+  the companion time-by-variable bar-matrix display, and \code{type = "lines"}
+  gives a line, step, or smoothed view for selected variables. When \code{vars}
+  is omitted, the line plot chooses \code{top} variables using \code{rank.by},
+  while the dot-matrix and bar-matrix plots use the union of the top
   \code{top_n_union} variables across time.}
 
   \item{curve, smooth.f, lty, lwd, display.cap, display.note}{Arguments for
@@ -169,25 +212,35 @@ dotmatrix.importance.rhf(x,
   type and line width. \code{display.cap} applies display-only quantile
   capping to stabilize the vertical scale in the presence of extreme spikes,
   and \code{display.note} toggles the on-plot note when capping is applied.
-  The same \code{display.note} flag is also used by the dot-matrix plot.}
+  The same \code{display.note} flag is also used by the dot-matrix and
+  bar-matrix plots.}
 
   \item{variable.labels, time.labels, sort_by, sort_abs}{Arguments
-  controlling variable labeling and ordering in the dot-matrix plot. Variable
-  labels may be supplied as a named vector or a two-column data frame.
-  Variables may be ordered by robust aggregate importance, alphabetically,
-  hierarchical clustering, or left in their existing order.}
+  controlling variable labeling and ordering in the dot-matrix and bar-matrix
+  plots. Variable labels may be supplied as a named vector or a two-column data
+  frame. Variables may be ordered by robust aggregate importance,
+  alphabetically, hierarchical clustering, or left in their existing order.}
 
-  \item{transform, color_by, point_color, value_colors, sign_colors,
-  cex.range, size.cap, color.cap, alpha, legend}{Arguments
-  controlling dot size, color encoding, display-only quantile capping,
-  transparency, and the optional right-side legend in the dot-matrix plot.}
+  \item{transform, color_by, point_color, bar_color, value_colors,
+  sign_colors, cex.range, bar.width, bar.max.height, size.cap, color.cap,
+  alpha, legend}{Arguments controlling dot size or bar height, color encoding,
+  display-only quantile capping, transparency, and the optional right-side
+  legend in the dot-matrix and bar-matrix plots. For the bar-matrix plot,
+  \code{bar.width} controls the width of each bar within a time cell and
+  \code{bar.max.height} controls the largest bar height within a variable row.
+  When \code{color_by = "sign"}, bars are drawn upward or downward from the
+  row center according to the sign of the importance value. In the bar-matrix
+  plot, \code{point_color} is accepted as a compatibility alias for
+  \code{bar_color}, and \code{cex.range} is accepted but ignored.}
 
   \item{xlab, ylab, main, axis.cex, var.cex, time.label.srt, show.grid,
-  grid.col, mar, legend.width, width, height, save_plot, out.file}{Display,
-  layout, and export options for the plotting helpers. By default the
-  dot-matrix plot uses blank axis labels, draws light guide lines, computes
-  margins automatically, and can optionally be written to file with
-  \code{save_plot = TRUE}.}
+  grid.col, zero.line, zero.col, border, mar, legend.width, width, height,
+  save_plot, out.file}{Display, layout, and export options for the plotting
+  helpers. By default the dot-matrix and bar-matrix plots use blank axis
+  labels, draw light guide lines, compute margins automatically, and can
+  optionally be written to file with \code{save_plot = TRUE}. \code{zero.line}
+  and \code{zero.col} control row-center reference lines for signed bar plots;
+  \code{border} is passed to the rectangles drawn by the bar-matrix plot.}
 
   \item{...}{Additional arguments passed to internal calculations or plotting
   routines.}
@@ -261,6 +314,9 @@ that includes robust over-time summaries for the leading variables.
 \code{dotmatrix.importance.rhf()} produces a base-R dot-matrix plot and
 returns plotting metadata invisibly.
 
+\code{barplot.importance.rhf()} produces a base-R bar-matrix plot and returns
+plotting metadata invisibly.
+
 \code{plot()} returns invisibly the result of the underlying plotting helper.
 }
 
@@ -300,6 +356,9 @@ oldpar <- par(mfrow=c(1,1))
 ## dot-matrix importance plot (default)
 plot(imp.t)
 
+## companion bar-matrix importance plot
+plot(imp.t, type = "barplot")
+
 ## step-style importance line plot for the top variables
 ## (ranked by the 90th percentile over time and display-capped at q99)
 plot(imp.t, type = "lines", top = 10)
@@ -310,6 +369,9 @@ plot(imp.t, type = "lines", curve = "lowess", smooth.f = 0.5,
 
 ## dot-matrix plot with robust ordering and display capping
 plot(imp.t, sort_by = "q90", size.cap = 0.99, color.cap = 0.99)
+
+## bar-matrix plot using signed colors, if signed importance values are present
+plot(imp.t, type = "barplot", color_by = "sign")
 
 par(oldpar)
 

@@ -49,7 +49,8 @@
 
   \item{legend.show}{If \code{TRUE}, show a legend when plotting multiple cases.}
   
-  \item{...}{Additional graphics parameters passed to \code{\link[graphics]{plot}}.}
+  \item{...}{Additional graphics parameters passed to \code{\link[graphics]{plot}},
+  including optional axis labels such as \code{xlab} and \code{ylab}.}
 
 }
 
@@ -115,6 +116,9 @@ oldpar <- par(mfrow=c(1,1))
 ## plot selected cases
 ids <- o$ensemble.id[1:3]
 plot(o, idx = ids)
+
+## custom axis label
+plot(o, idx = ids, ylab = "my hazard")
 
 ## hazard only
 plot(o, idx = ids)

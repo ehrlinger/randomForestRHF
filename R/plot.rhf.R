@@ -58,7 +58,14 @@ plot.rhf <- function(x, idx = NULL, scale.hazard = FALSE,
          H.grid.smooth = H.grid.smooth,
          time.grid = time.grid)  ## NEW: carry the grid back for plotting
   })
-  ## Extract or compute xlim/ylim
+  ## Extract or compute plot labels and ranges.  Values supplied
+  ## through ... must be removed before do.call(plot, ...), otherwise
+  ## plot.default receives duplicate formal arguments.
+  has.xlab <- "xlab" %in% names(dots)
+  has.ylab <- "ylab" %in% names(dots)
+  xlab <- if (has.xlab) dots$xlab else "time"
+  ylab.default <- if (hazard.only) "Hazard" else "CHF + hazard"
+  ylab <- if (has.ylab) dots$ylab else ylab.default
   xlim <- if (!is.null(dots$xlim)) dots$xlim else range(time.interest)
   ylim <- if (!is.null(dots$ylim)) dots$ylim else {
     range(unlist(
@@ -71,13 +78,14 @@ plot.rhf <- function(x, idx = NULL, scale.hazard = FALSE,
       })
     ), na.rm = TRUE)
   }
+  dots$xlab <- NULL
+  dots$ylab <- NULL
   dots$xlim <- NULL
   dots$ylim <- NULL
   ## Main plot
-  ylab.default <- if (hazard.only) "Hazard" else "CHF + hazard"
   do.call("plot", c(list(x = NA, y = NA,
                          xlim = xlim, ylim = c(max(0, ylim[1]), ylim[2]),
-                         xlab = "time", ylab = ylab.default), dots))
+                         xlab = xlab, ylab = ylab), dots))
   ## Loop through cases
   invisible(lapply(seq_along(idx), function(k) {
     i <- idx[k]
